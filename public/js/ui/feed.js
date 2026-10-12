@@ -3,7 +3,7 @@ import { tweenNumber } from './tween.js';
 
 const PER_SOURCE_LIMIT = 300;
 const DISPLAY_LIMIT = 200;
-const SETTLE_MS = 2000; // rows arriving after the first fill count as "new"
+const SETTLE_MS = 2000; // entries added this long after the first load count as "new"
 
 // Small icons for system rows (feed failed / recovered) in place of a colour dot.
 const ICONS = {
@@ -17,13 +17,15 @@ const ICONS = {
 // isCurrent(entry) marks the row whose item the detail panel is showing.
 // Rows keep their DOM nodes between renders: a new one slides in at its place, a
 // revised one glows, and the row under the reader's eye stays put while rows land above.
+// "New" is a property of the entry (when it was added), not of the row: rows re-shown
+// after a layer toggle, or a source that lands late in the first load, stay quiet.
 export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false } = {}) {
   const entries = new Map();
   const nodes = new Map(); // id -> { li, button, time, entry }
   let renderQueued = false;
   let revealQueued = false;
-  let loading = true; // skeleton rows until a feed has answered (app.js setLoading)
-  let settledAt = null; // when the first non-empty render happened
+  let loading = true; // skeleton rows until the first load is done (app.js setLoading)
+  let settledAt = null; // when the first load finished
 
   function prune(source) {
     const mine = [...entries.values()].filter((e) => e.source === source).sort((a, b) => b.time - a.time);
@@ -71,7 +73,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     const top = listEl.scrollTop;
     const anchor = top > 0 ? [...listEl.children].find((li) => li.offsetTop + li.offsetHeight > top) : null;
     const anchorTop = anchor?.offsetTop;
-    const animate = settledAt !== null && now - settledAt > SETTLE_MS;
+    const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
 
     const lis = shown.map((e) => {
       let n = nodes.get(e.id);
@@ -79,10 +81,11 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         n = { li: el('li', { class: e.system ? 'system' : null }) };
         fill(n, e, now);
         nodes.set(e.id, n);
-        if (animate) n.li.classList.add('new');
+        if (fresh(e.addedAt)) n.li.classList.add('new');
       } else if (n.entry !== e) {
         fill(n, e, now); // replaced (an earthquake's magnitude was revised)
-        if (animate) n.li.classList.add('updated');
+        n.li.classList.remove('new');
+        if (fresh(e.replacedAt)) n.li.classList.add('updated');
       } else {
         n.time.textContent = timeAgo(e.time, now);
       }
@@ -104,15 +107,17 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       listEl.scrollTop += anchor.offsetTop - anchorTop;
       listEl.style.scrollBehavior = '';
     }
-    if (settledAt === null) settledAt = now;
     if (revealQueued) {
       revealQueued = false;
       listEl.querySelector('[aria-current]')?.scrollIntoView({ block: 'nearest' });
     }
   }
 
-  // Let a row animate again the next time it changes.
-  listEl.addEventListener('animationend', (e) => e.target.classList?.remove('new', 'updated'));
+  // Let a row animate again the next time it changes. A new row runs its slide and
+  // its glow together; only the glow's end (the longer one) clears the class.
+  listEl.addEventListener('animationend', (e) => {
+    if (e.animationName === 'feed-glow') e.target.classList.remove('new', 'updated');
+  });
   // The section shows a shadow while rows are tucked under its heading.
   listEl.addEventListener('scroll', () => listEl.parentElement.classList.toggle('scrolled', listEl.scrollTop > 0), { passive: true });
 
@@ -129,7 +134,11 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
 
   return {
     add(entry) {
-      if (entries.has(entry.id) && !entry.replace) return;
+      const prior = entries.get(entry.id);
+      if (prior && !entry.replace) return;
+      const now = Date.now();
+      entry.addedAt = prior ? prior.addedAt : now;
+      if (prior) entry.replacedAt = now;
       entries.set(entry.id, entry);
       prune(entry.source);
       refresh();
@@ -140,6 +149,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     setLoading(on) {
       if (loading === on) return;
       loading = on;
+      if (!on && settledAt === null) settledAt = Date.now();
       refresh();
     },
     refresh,

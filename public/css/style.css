@@ -281,7 +281,7 @@ body.sidebar-open .sidebar { transform: none; }
 .feed li.new { animation: feed-in var(--dur-base) var(--ease) both, feed-glow 1.2s var(--ease); }
 .feed li.updated { animation: feed-glow 1.2s var(--ease); }
 @keyframes feed-in { from { opacity: 0; transform: translateY(-6px); } }
-@keyframes feed-glow { from { background: var(--accent-tint); } }
+@keyframes feed-glow { from, 35% { background: var(--accent-tint); } }
 .feed button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 10px 1fr auto; gap: var(--space-1) var(--space-2);
   width: 100%; padding: var(--space-2) var(--space-4); cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease); }

@@ -182,7 +182,7 @@ function showStatus() {
   summary.update(shown, { serverDown });
   const d = liveStatus.update(shown, { serverDown });
   document.getElementById('connecting').classList.toggle('show', !!d.connecting);
-  feed.setLoading(!!d.connecting);
+  feed.setLoading(!!d.connecting || shown.some((s) => s.loading)); // until every feed has answered once
 }
 
 async function tick() {
