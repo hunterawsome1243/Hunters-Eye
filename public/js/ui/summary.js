@@ -9,42 +9,70 @@ export function createSummary(root, layers, { onToggle }) {
   let serverDown = false;
 
   // One popover shared by every chip, placed under whichever health button opened it.
-  const popover = el('div', { class: 'popover', role: 'dialog', 'aria-label': 'Feed status' });
+  // It sits right after the strip in the DOM (not inside it: the strip's edge fade
+  // would mask it) so assistive tech finds it next to the chips.
+  const popover = el('div', { id: 'feed-popover', class: 'popover', role: 'dialog', tabindex: '-1', 'aria-label': 'Feed status' });
   popover.hidden = true;
-  document.body.append(popover);
+  root.after(popover);
   let openFor = null;
   function fillPopover(c) {
     popover.replaceChildren(...c.lines.map((line, i) => el('div', { class: i ? null : 'popover-title' }, line)));
   }
-  function closePopover() {
-    if (!openFor) return;
-    openFor.health.setAttribute('aria-expanded', 'false');
-    openFor = null;
-    popover.hidden = true;
-  }
-  function openPopover(c) {
-    if (openFor === c) return closePopover();
-    closePopover();
-    openFor = c;
-    c.health.setAttribute('aria-expanded', 'true');
-    fillPopover(c);
-    popover.hidden = false;
+  // Under the button, kept 8px inside the viewport; measured from a clean left so a
+  // previous placement can't squeeze the width.
+  function place(c) {
+    popover.style.left = '8px';
     const r = c.health.getBoundingClientRect();
     popover.style.top = `${r.bottom + 6}px`;
     popover.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - popover.offsetWidth - 8))}px`;
   }
-  document.addEventListener('click', (e) => {
+  function closePopover() {
+    if (!openFor) return;
+    const { health } = openFor;
+    health.setAttribute('aria-expanded', 'false');
+    openFor = null;
+    if (popover.contains(document.activeElement)) health.focus({ preventScroll: true });
+    popover.hidden = true;
+  }
+  function openPopover(c, { focus = false } = {}) {
+    if (openFor === c) return closePopover();
+    closePopover();
+    openFor = c;
+    c.health.setAttribute('aria-expanded', 'true');
+    popover.setAttribute('aria-label', `${c.name} feed status`);
+    fillPopover(c);
+    popover.hidden = false;
+    place(c);
+    if (focus) popover.focus({ preventScroll: true }); // opened from the keyboard: read it next
+  }
+  // Capture phase, so a press on a map control (which stops clicks) still closes it.
+  document.addEventListener('pointerdown', (e) => {
     if (openFor && !popover.contains(e.target) && !openFor.health.contains(e.target)) closePopover();
+  }, true);
+  // Escape closes just the popover when one is open; the detail card keeps its own Escape.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !openFor) return;
+    e.stopPropagation();
+    closePopover();
+  }, true);
+  document.addEventListener('focusin', (e) => {
+    if (openFor && !popover.contains(e.target) && e.target !== openFor.health) closePopover();
   });
-  document.addEventListener('keydown', (e) => e.key === 'Escape' && closePopover());
-  root.addEventListener('scroll', closePopover, { passive: true });
+  // The popover follows its button while the strip scrolls, and goes when the button does.
+  root.addEventListener('scroll', () => {
+    if (!openFor) return;
+    const b = openFor.health.getBoundingClientRect();
+    const s = root.getBoundingClientRect();
+    if (b.right <= s.left || b.left >= s.right) closePopover();
+    else place(openFor);
+  }, { passive: true });
 
   for (const layer of layers) {
     const input = el('input', { type: 'checkbox', 'aria-label': `Show ${layer.name}` });
     input.checked = layer.visible;
     const count = el('span', { class: 'count' }, '…');
     const ago = el('span', { class: 'ago' }, 'loading');
-    const health = el('button', { type: 'button', class: 'chip-health', 'aria-expanded': 'false', 'aria-label': `${layer.name} feed status` }, ago);
+    const health = el('button', { type: 'button', class: 'chip-health', 'aria-expanded': 'false', 'aria-controls': 'feed-popover', 'aria-label': `${layer.name} feed status` }, ago);
     const chip = el('div', { class: 'chip', 'data-id': layer.id, 'data-health': 'loading' },
       el('label', { class: 'chip-toggle' },
         input,
@@ -53,8 +81,8 @@ export function createSummary(root, layers, { onToggle }) {
         el('span', { class: 'name' }, layer.name)),
       health,
     );
-    const entry = { chip, count, ago, health, lines: [] };
-    health.addEventListener('click', () => openPopover(entry));
+    const entry = { chip, count, ago, health, name: layer.name, lines: [] };
+    health.addEventListener('click', (e) => openPopover(entry, { focus: e.detail === 0 }));
     input.addEventListener('change', () => {
       chip.classList.toggle('off', !input.checked);
       onToggle(layer, input.checked);
@@ -70,7 +98,10 @@ export function createSummary(root, layers, { onToggle }) {
     root.classList.toggle('more-right', root.scrollLeft + root.clientWidth < root.scrollWidth - 2);
   }
   root.addEventListener('scroll', edges, { passive: true });
-  window.addEventListener('resize', edges);
+  window.addEventListener('resize', () => {
+    edges();
+    if (openFor) place(openFor); // a rotation or resize moves the chips
+  });
   requestAnimationFrame(edges);
 
   function state(s) {
@@ -109,7 +140,10 @@ export function createSummary(root, layers, { onToggle }) {
       c.lines = lines;
       c.chip.title = lines.join('\n');
     }
-    if (openFor) fillPopover(openFor);
+    if (openFor) {
+      fillPopover(openFor);
+      place(openFor); // the text may have grown
+    }
     edges();
   }
 

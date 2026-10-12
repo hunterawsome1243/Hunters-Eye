@@ -115,10 +115,13 @@ button { font: inherit; color: inherit; }
 .summary.more-left { mask-image: linear-gradient(to right, transparent, #000 28px); -webkit-mask-image: linear-gradient(to right, transparent, #000 28px); }
 .summary.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
   -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
-.chip { position: relative; display: flex; align-items: stretch; flex: none;
+/* --gap is the 2px of chip surface between swatch and ring; it follows the surface up the
+   hover/press ladder. --ring is the health colour. */
+.chip { position: relative; display: flex; align-items: stretch; flex: none; --gap: var(--panel-2); --ring: var(--muted);
   border-radius: var(--radius-md); background: var(--panel-2); border: 1px solid var(--border-strong);
   user-select: none; white-space: nowrap; }
-.chip:hover { background: var(--panel-3); border-color: var(--border-hover); }
+.chip:hover { --gap: var(--panel-3); background: var(--panel-3); border-color: var(--border-hover); }
+.chip:has(.chip-toggle:active) { --gap: var(--panel-4); }
 .chip-toggle { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); cursor: pointer;
   border-radius: var(--radius-md) 0 0 var(--radius-md); }
 .chip-toggle:active { background: var(--panel-4); }
@@ -126,12 +129,10 @@ button { font: inherit; color: inherit; }
 .chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
 .chip:has(input:focus-visible) { box-shadow: var(--ring); }
 .chip .swatch { width: 10px; height: 10px; border-radius: var(--radius-xs); flex: none; background: var(--c);
-  box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--muted); transition: box-shadow var(--dur-base) var(--ease); }
-.chip:hover .swatch { box-shadow: 0 0 0 2px var(--panel-3), 0 0 0 3.5px var(--muted); }
-.chip[data-health="ok"] .swatch { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--ok); }
-.chip[data-health="ok"]:hover .swatch { box-shadow: 0 0 0 2px var(--panel-3), 0 0 0 3.5px var(--ok); }
-.chip[data-health="stale"] .swatch { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--warn); }
-.chip[data-health="error"] .swatch { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--bad); }
+  box-shadow: 0 0 0 2px var(--gap), 0 0 0 3.5px var(--ring); transition: box-shadow var(--dur-base) var(--ease); }
+.chip[data-health="ok"] { --ring: var(--ok); }
+.chip[data-health="stale"] { --ring: var(--warn); }
+.chip[data-health="error"] { --ring: var(--bad); }
 .chip[data-health="loading"] .swatch { animation: pulse 1.2s infinite; }
 .chip .count { font-weight: 600; font-variant-numeric: tabular-nums; }
 .chip .name { color: var(--text-2); }
@@ -143,6 +144,9 @@ button { font: inherit; color: inherit; }
 .chip-health[aria-expanded="true"] { color: var(--text); background: var(--panel-4); }
 .chip.off { background: transparent; border-color: var(--border-strong); color: var(--muted); }
 .chip.off:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--border-hover); }
+/* An off chip climbs its own ladder: a faint wash on hover, a little more for press,
+   health hover and open, never the filled chip's surfaces. */
+.chip.off .chip-toggle:active, .chip.off .chip-health:hover, .chip.off .chip-health[aria-expanded="true"] { background: rgba(255, 255, 255, 0.06); }
 .chip.off .name { color: var(--muted); }
 /* Off wins over the health ring, hovered or not: an off layer has nothing live to report. */
 .chip.off[data-health] .swatch, .chip.off[data-health]:hover .swatch { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
