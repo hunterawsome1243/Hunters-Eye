@@ -1,27 +1,29 @@
 {
   "name": "hunters-eye",
   "version": "0.1.0",
-  "description": "OSINT dashboard: earthquakes, aircraft, satellites and severe weather on one live map",
+  "description": "OSINT dashboard: earthquakes, aircraft, satellites and severe weather on one live 3D globe",
   "type": "module",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "build:land": "node scripts/build-land.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "license": "MIT",
   "dependencies": {
-    "@maplibre/maplibre-gl-leaflet": "^0.1.4",
+    "@anthropic-ai/sdk": "^0.133.0",
     "express": "^5.1.0",
-    "leaflet": "^1.9.4",
     "maplibre-gl": "^6.11.2",
     "satellite.js": "^6.0.1"
   },
   "devDependencies": {
-    "playwright": "^1.56.1"
+    "playwright": "^1.56.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   }
 }

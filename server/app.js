@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { SourcePoller } from './lib/poller.js';
+import { createBriefRoute } from './brief.js';
 
 const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 
@@ -8,32 +9,54 @@ const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 // before, began requiring an API key in 2026.
 const DEFAULT_BASEMAP = 'https://tiles.openfreemap.org/styles/dark';
 
+// Satellite imagery under the vector map, from space down to about z12: EOX's
+// Sentinel-2 cloudless mosaic (2016 global layer, CC BY 4.0), keyless. The browser
+// falls back to NASA Blue Marble on its own if these tiles fail.
+const DEFAULT_IMAGERY_TILES = 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg';
+const DEFAULT_IMAGERY_ATTRIBUTION = '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016) | <a href="https://maps.eox.at">EOX::Maps</a>';
+
+export function imageryConfig(env = process.env) {
+  const tiles = env.IMAGERY_TILES ?? DEFAULT_IMAGERY_TILES;
+  if (!tiles) return null; // IMAGERY_TILES= (empty) turns imagery off
+  return {
+    tiles,
+    attribution: env.IMAGERY_ATTRIBUTION ?? (tiles === DEFAULT_IMAGERY_TILES ? DEFAULT_IMAGERY_ATTRIBUTION : ''),
+    maxzoom: Math.min(Math.max(Number(env.IMAGERY_MAXZOOM) || 12, 1), 19),
+  };
+}
+
 export function createApp(sources, pollerOptions, {
   browserFallback = process.env.BROWSER_FALLBACK !== 'off',
   basemapStyle = process.env.BASEMAP_STYLE || DEFAULT_BASEMAP,
+  imagery = imageryConfig(),
+  brief = createBriefRoute(),
 } = {}) {
   const pollers = new Map(sources.map((s) => [s.id, new SourcePoller(s, pollerOptions)]));
   const app = express();
   app.disable('x-powered-by');
 
   app.use(express.static(root('public')));
-  app.use('/vendor/leaflet', express.static(root('node_modules/leaflet/dist')));
   app.use('/vendor/satellite.js', express.static(root('node_modules/satellite.js/dist')));
   app.use('/vendor/maplibre-gl', express.static(root('node_modules/maplibre-gl/dist')));
-  app.use('/vendor/maplibre-gl-leaflet', express.static(root('node_modules/@maplibre/maplibre-gl-leaflet/dist')));
   app.use('/shared', express.static(root('shared')));
 
   // For a host's health checks. Unlike /api/status it doesn't count as a viewer,
   // so it never keeps the upstream feeds polling on its own.
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
-  // Read once by the browser. `basemap` is the MapLibre style for the map underneath
-  // the layers. `fallback` lists the sources the browser may fetch itself, and from
-  // where, while this server can't reach them (public/js/fallback.js).
+  // Read once by the browser. `basemap` is the MapLibre style for the globe's
+  // vector map, `imagery` the raster tiles drawn under it from space (null = none).
+  // `fallback` lists the sources the browser may fetch itself, and from where,
+  // while this server can't reach them (public/js/fallback.js). `brief` says
+  // whether the "Brief me" button should exist (server/brief.js).
   app.get('/api/config', (req, res) => {
     const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
-    res.json({ basemap: basemapStyle, fallback: Object.fromEntries(fallback) });
+    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null });
   });
+
+  // A Claude-written situation brief of what the dashboard shows, on demand.
+  // The key stays on this server; see server/brief.js for the cost and throttle.
+  app.post('/api/brief', express.json({ limit: brief.bodyLimit }), brief.handler);
 
   // One cheap call the browser makes every few seconds: health, counts and versions
   // of every source. The browser fetches a source's data only when its version moves.

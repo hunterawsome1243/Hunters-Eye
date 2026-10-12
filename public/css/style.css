@@ -78,7 +78,7 @@ button { font: inherit; color: inherit; }
 /* Shared interactive behaviour: every control answers hover, press and keyboard focus.
    Hover lifts the surface one step, pressing lifts it one more; nothing moves or recolours. */
 .icon-btn, .chip, .chip-toggle, .chip-health, .feed button, .filter select, .filter input, .detail-extra a,
-.leaflet-container .leaflet-bar a {
+.maplibregl-ctrl-group button {
   transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
@@ -216,7 +216,7 @@ body.sidebar-open .connecting { left: calc(50% + var(--sidebar-w) / 2); }
 /* Layout: the map fills the window below the top bar; the sidebar slides over it.
    Closed, the sidebar is also hidden (out of the tab order), after its slide. */
 .layout { position: fixed; inset: var(--topbar-h) 0 0 0; }
-.map { position: absolute; inset: 0; z-index: 0; background: var(--bg); transition: left var(--dur-base) var(--ease); } /* z-index keeps Leaflet's controls under the sidebar */
+.map { position: absolute; inset: 0; z-index: 0; background: var(--bg); transition: left var(--dur-base) var(--ease); } /* z-index keeps the globe's controls under the sidebar */
 body.sidebar-open .map { left: var(--sidebar-w); }
 
 .sidebar { position: absolute; top: 0; bottom: 0; left: 0; width: var(--sidebar-w); z-index: 900;
@@ -357,39 +357,57 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 /* A pulse on the map where a selected point sits (app.js ripple): the icon box is the
    marker's own size, and the ring grows out from its edge in a light stroke so it reads
    over a filled marker of any colour. Reduced motion shows a still ring instead. */
-.ripple { pointer-events: none; }
+.ripple { pointer-events: none; position: relative; width: var(--size); height: var(--size); }
 .ripple i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--text); box-shadow: 0 0 0 1px var(--c) inset; opacity: 0; animation: ripple 700ms ease-out 2; }
 @keyframes ripple { from { transform: scale(1); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
 .ripple.arrive i { animation-iteration-count: 3; }
 @media (prefers-reduced-motion: reduce) { .ripple i { animation: none; opacity: 0.8; transform: scale(1.6); } }
 
-/* Leaflet, restyled for the dark theme */
-.leaflet-container { background: var(--bg); font: inherit; }
-.leaflet-container .leaflet-bar { border: 1px solid var(--border-strong); border-radius: var(--radius-md);
-  box-shadow: var(--shadow-2); background: var(--panel); background-clip: padding-box; overflow: hidden; }
-.leaflet-container .leaflet-bar a { width: 32px; height: 32px; line-height: 32px; background: var(--panel); color: var(--text-2);
+/* MapLibre (the globe), restyled for the dark theme */
+.maplibregl-map { font: inherit; background: var(--bg); }
+.maplibregl-ctrl-group { background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2); overflow: hidden; }
+.maplibregl-ctrl-group:not(:empty) { box-shadow: var(--shadow-2); }
+.maplibregl-ctrl-group button { width: 32px; height: 32px; background: var(--panel); color: var(--text-2);
   border-bottom: 1px solid var(--border); border-radius: 0; }
-.leaflet-container .leaflet-bar a:last-child { border-bottom: 0; }
-.leaflet-container .leaflet-bar a:hover { background: var(--panel-2); color: var(--text); }
-.leaflet-container .leaflet-bar a:active { background: var(--panel-3); color: var(--text); }
-.leaflet-container .leaflet-bar a:focus-visible { outline: none; box-shadow: var(--ring-inset); }
-.leaflet-container .leaflet-bar a.leaflet-disabled { background: var(--panel); color: var(--muted); opacity: 0.45; }
-.leaflet-container .leaflet-control-zoom-in, .leaflet-container .leaflet-control-zoom-out { font: 600 var(--text-xl)/32px ui-sans-serif, system-ui, sans-serif; text-indent: 0; }
-.leaflet-container .leaflet-control-attribution { background: var(--glass); color: var(--muted); font-size: var(--text-xs);
+.maplibregl-ctrl-group button + button { border-top: 0; }
+.maplibregl-ctrl-group button:last-child { border-bottom: 0; }
+.maplibregl-ctrl-group button:hover { background: var(--panel-2); color: var(--text); }
+.maplibregl-ctrl-group button:active { background: var(--panel-3); color: var(--text); }
+.maplibregl-ctrl-group button:focus:not(:focus-visible) { box-shadow: none; }
+.maplibregl-ctrl-group button:focus:focus-visible { outline: none; box-shadow: var(--ring-inset); }
+.maplibregl-ctrl-group button:disabled { color: var(--muted); opacity: 0.45; }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon, .maplibregl-ctrl-attrib-button { filter: invert(0.85) hue-rotate(180deg); }
+.maplibregl-ctrl-group button.he-ctrl-spin { display: grid; place-items: center; }
+.he-ctrl-spin[aria-pressed="true"] { color: var(--accent); }
+.maplibregl-ctrl-attrib { background: var(--glass); color: var(--muted); font-size: var(--text-xs);
   padding: 2px var(--space-2); border-top-left-radius: var(--radius-sm); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.leaflet-container .leaflet-control-attribution a { color: var(--text-2); text-decoration: underline;
+.maplibregl-ctrl-attrib.maplibregl-compact { background: var(--glass); color: var(--muted); }
+.maplibregl-ctrl-attrib a { color: var(--text-2); text-decoration: underline;
   text-decoration-color: var(--border-hover); text-underline-offset: 2px; }
-.leaflet-container .leaflet-control-attribution a:hover, .leaflet-container .leaflet-control-attribution a:focus { text-decoration-color: currentColor; }
+.maplibregl-ctrl-attrib a:hover, .maplibregl-ctrl-attrib a:focus { text-decoration-color: currentColor; }
 /* The scale is a measurement, so its edge is drawn in text colour rather than a decorative hairline. */
-.leaflet-container .leaflet-control-scale-line { border: 2px solid var(--muted); border-top: 0; background: var(--glass);
-  color: var(--text-2); font-size: var(--text-xs); line-height: 1.2; padding: 2px var(--space-2) 1px; text-shadow: none;
+.maplibregl-ctrl-scale { border: 2px solid var(--muted); border-top: 0; background: var(--glass);
+  color: var(--text-2); font-size: var(--text-xs); line-height: 1.2; padding: 2px var(--space-2) 1px;
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.leaflet-container .leaflet-control-scale-line:not(:first-child) { border-top: 2px solid var(--muted); border-bottom: 0; margin-top: -2px; }
-.leaflet-tooltip.sat-label { background: transparent; border: 0; box-shadow: none; color: #ddd6fe; /* the satellite family, lightened for text */
-  font-size: var(--text-xs); font-weight: 600; text-shadow: 0 0 3px #000, 0 0 3px #000; padding: 0; }
-.leaflet-tooltip.sat-label::before { display: none; }
-.aircraft-canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
-.map.hit { cursor: pointer; }
+.maplibregl-canvas:focus-visible { outline: none; box-shadow: var(--ring-inset); }
+.map-unsupported { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+  color: var(--text-2); padding: var(--space-4); }
+
+/* Situation brief (shown only when the server has an API key) */
+.brief-row { display: flex; align-items: center; gap: var(--space-3); }
+.brief-hint { font-size: var(--text-xs); line-height: 1.35; }
+.brief-btn { flex: none; padding: var(--space-1) var(--space-3); background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.brief-btn:hover { background: var(--panel-3); }
+.brief-btn:active { background: var(--panel-4); }
+.brief-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.brief-btn[aria-busy="true"] { opacity: 0.6; cursor: progress; }
+.brief-text { margin: var(--space-2) 0 0; white-space: pre-line; font-size: var(--text-sm); color: var(--text); }
+.brief-text:empty { display: none; }
+.brief-text.error { color: var(--bad); }
+.brief-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
 
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {
@@ -436,9 +454,9 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
   /* A handle above the title; dragging the header down closes the sheet (detail.js) */
   .detail-head { padding-top: var(--space-2); touch-action: none; user-select: none; -webkit-user-select: none; }
   .detail-head::before { content: ''; grid-column: 1 / -1; justify-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--border-hover); }
-  .leaflet-bottom.leaflet-left { bottom: var(--space-5); }
-  .leaflet-bottom { visibility: visible; transition: opacity var(--dur-base) var(--ease), visibility 0s linear 0s; }
-  body:has(#detail:not([hidden])) .leaflet-bottom { opacity: 0; visibility: hidden; pointer-events: none;
+  .maplibregl-ctrl-bottom-left { bottom: var(--space-5); }
+  .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { visibility: visible; transition: opacity var(--dur-base) var(--ease), visibility 0s linear 0s; }
+  body:has(#detail:not([hidden])) .maplibregl-ctrl-bottom-left, body:has(#detail:not([hidden])) .maplibregl-ctrl-bottom-right { opacity: 0; visibility: hidden; pointer-events: none;
     transition: opacity var(--dur-base) var(--ease), visibility 0s linear var(--dur-base); }
 }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(16px); } }

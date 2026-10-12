@@ -1,6 +1,6 @@
 # Hunter's Eye
 
-An open-source intelligence (OSINT) dashboard that fuses four free public data feeds onto one live, dark world map:
+An open-source intelligence (OSINT) dashboard that fuses four free public data feeds onto one live 3D globe: spin it, tilt it, and zoom from space, where Earth is drawn from satellite imagery, down to street level, where it becomes a real map with roads, water, buildings and labels.
 
 | Layer | What you see | Source |
 | --- | --- | --- |
@@ -11,12 +11,14 @@ An open-source intelligence (OSINT) dashboard that fuses four free public data f
 
 Other features:
 
+- A **3D globe** drawn by MapLibre GL JS: drag to spin, right-drag (or two fingers) to tilt, scroll to zoom from orbit to street level. From space the Earth is Sentinel-2 satellite imagery under the vector map's borders and labels; between zoom 9.5 and 12 the imagery fades out and the dark street map takes over, with extruded buildings from zoom 14.5. The globe rotates slowly on its own until you touch it (the button under the zoom controls turns that off; it also stays off under "reduce motion"). Satellite ground tracks wrap around the sphere.
 - Click anything on the map (or in the feed) to open a detail panel: magnitude, depth and time for a quake; callsign, altitude, speed and squawk for a plane; name, altitude, speed and orbit for a satellite; full alert text for weather.
 - A **live feed** down the side, newest first, mixing all layers: new earthquakes, new weather alerts, aircraft squawking emergency codes (7500/7600/7700), satellite element updates, and any feed failing or recovering.
 - A **summary bar** with one chip per layer: on/off toggle, item count, time of the last update and a health dot (green ok, grey loading, amber stale, red failed). Hover a chip for the error message, the next refresh time and the source's notes.
 - **Filters**: minimum earthquake magnitude, only aircraft in the current map view, only notable satellites, minimum weather severity.
 - Each source refreshes on its own schedule, sized to that source's rate limits. If one feed fails, its chip turns red, the last good data stays on the map, and the other layers keep running.
 - If the server can't reach OpenSky or CelesTrak at all, your browser fetches that feed itself and the chip says **via browser**. See [Browser fallback](#browser-fallback).
+- Optional **Brief me** button: Claude writes an 80-140 word situation brief of what is on the globe. It appears only when the server has an `ANTHROPIC_API_KEY`; see [Situation brief](#situation-brief-optional).
 
 ## Run it
 
@@ -27,7 +29,7 @@ npm install
 npm start
 ```
 
-Then open <http://localhost:3000>. That is the only command; no API keys are needed.
+Then open <http://localhost:3000>. That is the only command; no API keys are needed. The globe needs a browser with WebGL2 (every current browser; Safari 15 or newer). Without it the page says so and the feed and status keep working.
 
 Optional settings live in `.env` (copy `.env.example`). The most useful one is a free OpenSky API client, which makes aircraft refresh every ~1.5 minutes instead of every ~17. See [Configuration](#configuration).
 
@@ -42,7 +44,8 @@ browser ──/api/status every 5 s──▶  Node server (Express)  ──on ea
 
 - The **server** (`server/`) polls each upstream API on a fixed schedule and keeps the latest result in memory. Browsers only ever read from that cache, so opening ten tabs does not make ten times the upstream calls, and there are no cross-origin problems. When no browser has asked for anything in 10 minutes, polling pauses, so an idle server uses none of your rate-limit budget. Waking up still respects the previous interval.
 - The **browser** (`public/`) polls `/api/status` every 5 seconds. That small response carries every source's health, count and version; the browser downloads a source's data only when its version changes.
-- Leaflet, MapLibre, satellite.js and the app's own modules are served by the local server, so normally the only third-party requests the page makes are for the basemap.
+- MapLibre GL JS, satellite.js and the app's own modules are served by the local server, so the only third-party requests the page makes are for the map itself: OpenFreeMap's style, vector tiles, fonts and sprites, and EOX's imagery tiles.
+- The **globe** (`public/js/globe.js`) starts on a built-in style (a dark sphere with Natural Earth continents from `public/data/`), then fetches the basemap style, adds the projection, sky, imagery and 3D buildings to it (`public/js/globe/style.js`) and swaps it in. Every layer module re-mounts itself after each style load, so a basemap that fails to load leaves the continents in place and the data untouched. NASA's Blue Marble always sits under the Sentinel-2 imagery, so a Sentinel tile that is slow or never arrives shows Blue Marble rather than a bare patch. If enough Sentinel tiles fail outright, the globe switches to Blue Marble alone and says so in the feed.
 
 ### Browser fallback
 
@@ -55,6 +58,15 @@ Some hosts can't reach every feed. From Render's Oregon region, OpenSky and Cele
 
 Set `BROWSER_FALLBACK=off` to turn it off.
 
+### Situation brief (optional)
+
+With `ANTHROPIC_API_KEY` set, a **Situation brief** section appears at the top of the sidebar with a **Brief me** button. Pressing it sends the server a compact snapshot of what you see (layer counts, which feeds are healthy, the latest feed entries, the view box) and the server asks Claude Haiku 5.5 for an 80-140 word brief, in plain English, of what matters right now. Nothing is sent until the button is pressed.
+
+- The key lives only on the server (`server/brief.js`); the browser never sees it.
+- A brief is about 1,500 tokens in and 250 out, which is roughly **$0.0003** at Haiku 5.5's prices ($0.10 and $0.50 per million tokens). The response shows the cost of each brief.
+- Because the page may be public, the server allows one brief every 5 seconds and 20 an hour across all visitors, so the worst case with Haiku 5.5 is about half a cent an hour. `BRIEF_MODEL` picks another model; the per-brief cost is then only shown if that model's prices are added to `PRICE` in `server/brief.js`.
+- Without a key the route answers 404 and the section stays hidden.
+
 ## Data sources and limits
 
 All four are free and need no paid plan. Limits below were checked against each provider's documentation in October 2026.
@@ -65,9 +77,16 @@ All four are free and need no paid plan. Limits below were checked against each 
 | [OpenSky Network](https://openskynetwork.github.io/opensky-api/rest.html) | `/api/states/all?extended=1` | Anonymous: 400 credits/day. Free account API client: 4,000/day. A request costs 1 credit (box up to 25 sq°), 2 (up to 100), 3 (up to 400) or 4 (larger or global). HTTP 429 when credits run out. Basic auth with username/password no longer works; API clients use OAuth2 client credentials. | After each request the server waits *cost × 24 h ÷ daily credits*, plus 15%. Global view: every ~17 min anonymous, ~1.5 min with an API client. With "only aircraft in current view" the server queries a padded box around your view, which costs fewer credits and so refreshes faster (down to ~4 min anonymous, ~25 s with a client). Honors `X-Rate-Limit-Retry-After-Seconds` on 429. |
 | [CelesTrak](https://celestrak.org/NORAD/documentation/gp-data-formats.php) | `gp.php?GROUP=STATIONS&FORMAT=TLE` and `GROUP=VISUAL` | Data updates about every 2 hours. Since March 2026 a repeat download before the next update gets HTTP 403. More than 50 errors (301/403/404) in 2 hours gets your IP firewalled. | Each group is cached on disk (`data/cache/`) and downloaded at most once every 2 hours, including across restarts. A 403 keeps the cached data. After any error the server waits 30 minutes. Positions are computed in the browser every second, so no further requests are needed. |
 | [National Weather Service](https://www.weather.gov/documentation/services-web-api) | `/alerts/active?status=actual`, plus `/zones/{type}/{id}` | Requires a `User-Agent`. Limits are not published but described as generous; errors clear within about 5 seconds. | Alerts every 2 minutes. Zone- and county-based alerts arrive without a shape, so their outlines come from the zones endpoint, as the [NWS geolocation guide](https://www.weather.gov/media/documentation/docs/NWS_Geolocation.pdf) recommends. Each zone is downloaded once, simplified and cached on disk; at most 300 per cycle, 4 at a time, most severe alerts first. |
-| [OpenFreeMap](https://openfreemap.org/) | `tiles.openfreemap.org/styles/dark` (vector tiles from OpenStreetMap data) | Free, including commercial use. No API key, no sign-up, no stated request limits; runs on donations. | Loaded directly by the browser and drawn with MapLibre GL inside Leaflet. Credit line shown on the map. |
+| [OpenFreeMap](https://openfreemap.org/) | `tiles.openfreemap.org/styles/dark` (vector tiles, fonts and sprites from OpenStreetMap data, down to zoom 14 tiles overzoomed to 19) | Free, including commercial use. No API key, no sign-up, no stated request limits; runs on donations. | Loaded directly by the browser and drawn natively by MapLibre GL JS on the globe. Credit line shown on the map. `BASEMAP_STYLE=https://tiles.openfreemap.org/styles/liberty` gives a light map with its own 3D buildings. |
+| [EOX Sentinel-2 cloudless](https://s2maps.eu/) | `tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/…` (the 2016 mosaic: 10 m satellite imagery, Web Mercator tiles) | Free, no key. The 2016 and 2017 mosaics are CC BY 4.0; 2018 and later are CC BY-NC-SA 4.0. EOX asks for attribution (shown automatically) and may rate-limit heavy use. | Drawn under the vector map from space down to zoom 12, then faded out, so no imagery tile is ever requested above zoom 12. The 2016 layer is the default because it is the global CC BY mosaic. The 2017 layer is CC BY too but only has imagery over Europe, the Middle East and North Africa; elsewhere it returns white land, which is what the first deploy showed. Set `IMAGERY_TILES` to 2018 or later (global) if non-commercial use is fine for you. |
+| [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/) | `gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/…` (zoom 1-7, 611 m/px) | Public domain, no key, no stated limits. | Drawn under the Sentinel-2 layer everywhere, so the whole planet has colour even where EOX tiles are slow. Also the automatic fallback: after 8 failed imagery tiles in a minute the browser switches to Blue Marble and notes it in the feed. The `night` preset in `public/js/globe/style.js` (VIIRS city lights) is one line away. |
 
-**One source was swapped: the basemap.** The app first used CARTO's free Dark Matter tiles, but in 2026 CARTO began requiring an API key and now stamps "API key required" across maps without one. OpenFreeMap's dark style replaced it because it needs no key. To use another MapLibre style, set `BASEMAP_STYLE`.
+**Sources that were swapped or ruled out.**
+
+- **The basemap** first came from CARTO's free Dark Matter tiles, but in 2026 CARTO began requiring an API key and stamps "API key required" across maps without one. OpenFreeMap's dark style replaced it because it needs no key.
+- **Street-level satellite imagery** (Esri World Imagery, Mapbox Satellite, MapTiler, Google) needs an API key or a licence, so it is not used. Instead the free Sentinel-2 mosaic covers space to region zooms (~40 m per pixel at zoom 12) and hands over to the vector map, which has the roads, water, parks, labels and building footprints that imagery would be showing at those zooms anyway. That hand-over at zoom 9.5-12 is by design, not a gap.
+- **CesiumJS** was considered for the globe. The library is free, but its default imagery, terrain and 3D buildings are gated behind a Cesium ion token, and its keyless street detail is unlabeled vector geometry. MapLibre draws OpenFreeMap's tiles natively, is a quarter of the size, and renders only when something changes.
+- **Cross-origin access** to the tile hosts could not be checked from the sandbox this was built in (it blocks them); it is established from their public use by other MapLibre sites and is confirmed by the live smoke run.
 
 ## Configuration
 
@@ -81,8 +100,13 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 | `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | empty | A free OpenSky API client (sign in at opensky-network.org, Account page, create an API client). Raises aircraft credits from 400 to 4,000 a day. |
 | `EARTHQUAKES_INTERVAL_SEC`, `AIRCRAFT_INTERVAL_SEC`, `WEATHER_INTERVAL_SEC` | safe defaults | Override a refresh interval. The aircraft override skips the credit budgeting, so you can run out of credits. |
 | `CACHE_DIR` | `data/cache` | Where satellite elements and weather zone outlines are cached. Empty means memory only. |
-| `BASEMAP_STYLE` | OpenFreeMap dark | URL of the MapLibre style drawn under the layers, such as another OpenFreeMap style or your own tile server. |
+| `BASEMAP_STYLE` | OpenFreeMap dark | URL of the MapLibre style the globe's vector map comes from, such as another OpenFreeMap style or your own tile server. |
+| `IMAGERY_TILES` | EOX Sentinel-2 cloudless 2016 | `{z}/{x}/{y}` URL of the imagery drawn on the globe from space. Empty turns imagery off (the vector map covers the globe). |
+| `IMAGERY_ATTRIBUTION`, `IMAGERY_MAXZOOM` | EOX credit, `12` | The credit line for a custom imagery source, and the deepest zoom its tiles are requested at. |
 | `BROWSER_FALLBACK` | on | `off` stops browsers from fetching OpenSky and CelesTrak themselves when the server can't reach them. See [Browser fallback](#browser-fallback). |
+| `ANTHROPIC_API_KEY` | empty | Turns on the **Brief me** button. See [Situation brief](#situation-brief-optional). `BRIEF_MODEL` picks the model (default `claude-haiku-5-5`). |
+
+Page options: add `?spin=off` to the URL to load with the globe still; the spin button remembers your choice in the browser.
 
 `.env` is in `.gitignore`; never commit real credentials.
 
@@ -97,6 +121,8 @@ Things that work differently on a hosted server:
 - **Satellites may fail to load on the server after a restart.** The free plan wipes the disk on every restart and spin-down, so the CelesTrak cache is lost. If anyone on the same outbound address downloaded the same group in the last 2 hours, CelesTrak answers 403. A paid instance with a persistent disk set as `CACHE_DIR` avoids this.
 - **Free instances sleep.** After 15 minutes with no visitors the service spins down. The first visit afterwards takes about a minute, then each feed loads on its first refresh.
 - **Everyone shares one server.** All visitors see the same cache, and the "only aircraft in current view" box is shared too: the last visitor to move the map with the filter on decides the area for everyone.
+- **The map tiles and imagery never touch the server.** OpenFreeMap and EOX are fetched by each visitor's browser, so a hosted copy costs the host nothing in bandwidth for the globe itself.
+- **Brief me** needs `ANTHROPIC_API_KEY` in the service's environment; the throttle above bounds what a public page can spend.
 
 ## Testing
 
@@ -106,18 +132,20 @@ npm run smoke               # end to end against the LIVE feeds
 npm run smoke -- --fake     # end to end against local stand-ins (works offline)
 npm run smoke -- --fake --server-blocked    # server can't reach OpenSky/CelesTrak; checks the browser fallback
 npm run smoke -- --fake --browser-blocked   # ...and the browser is refused too; checks the error message
+npm run smoke -- --fake --shots             # also saves docs/globe-space.png, docs/globe-region.png and a phone run
 ```
 
-The smoke test starts the server, opens the dashboard in headless Chromium, waits for every source, checks each layer has items, clicks an item in each layer and a plane on the map, checks the view filter reaches the server, and fails on any browser console error or server warning. It saves a screenshot to `docs/screenshot.png`. It needs a Playwright Chromium once: `npx playwright install chromium` (or set `CHROMIUM_PATH` to an existing Chrome/Chromium).
+The smoke test starts the server, opens the dashboard in headless Chromium, waits for every source, checks each layer has items, clicks an item in each layer and a plane on the globe, checks that planes cluster from space and separate up close, that the satellite ground track wraps the globe, that the magnitude filter hides circles, that the view filter reaches the server, that "reduce motion" stops the spin, and fails on any browser console error or server warning. It saves a screenshot to `docs/screenshot.png`. It needs a Playwright Chromium once: `npx playwright install chromium` (or set `CHROMIUM_PATH` to an existing Chrome/Chromium). Headless Chromium draws the globe with SwiftShader (software WebGL2), so the run is slow but needs no GPU.
 
-The `--fake` stand-ins (`scripts/fake-upstream.mjs`) mirror each API's documented response shape, so you can test the whole app with no network.
+The `--fake` stand-ins (`scripts/fake-upstream.mjs`) mirror each API's documented response shape, and the globe's style and tile hosts are answered locally (the app's own offline style with Natural Earth continents, empty tiles), so you can test the whole app with no network.
 
 ## Project layout
 
 ```
 server/
   index.js            starts the server
-  app.js              Express routes: static files, /api/status, /api/sources/:id, PUT /api/sources/:id/options
+  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief
+  brief.js            the Claude-written situation brief: snapshot sanitising, throttle, pricing
   lib/poller.js       runs one source on its schedule, caches the result, pauses when idle
   lib/http.js         fetch with User-Agent, timeout, readable errors and retry-after
   lib/geometry.js     polygon simplification for weather outlines
@@ -125,25 +153,29 @@ server/
 shared/               OpenSky and CelesTrak parsing and budgeting, used by the server and the browser fallback
 public/
   index.html, css/style.css
-  js/app.js           map, status polling, wiring
+  data/land-110m.geojson   Natural Earth continents for the offline/fallback globe (scripts/build-land.mjs)
+  js/app.js           status polling, layer wiring, the brief button
+  js/globe.js         the MapLibre globe: basemap pipeline, draw-order slots, click ranking, camera, controls
+  js/globe/           style.js (projection, sky, imagery, buildings), geo.js (antimeridian-safe geometry), spin.js, icons.js
   js/fallback.js      fetches OpenSky and CelesTrak from the browser when the server can't
-  js/layers/          one module per map layer, matching the server sources
-  js/ui/              summary bar, live feed, detail panel, formatting helpers
-scripts/              smoke test and the fake upstream APIs
+  js/layers/          one module per globe layer, matching the server sources
+  js/ui/              summary bar, live feed, detail panel, brief, formatting helpers
+scripts/              smoke test, the fake upstream APIs, the land-file builder
 test/                 unit tests (node:test)
 ```
 
 ### Adding a data source
 
 1. Write `server/sources/<name>.js` exporting `{ id, name, intervalMs, fetch() }`, where `fetch()` returns `{ data, count }` (optionally `note` and `nextDelayMs`) or throws. Add it to `server/sources/index.js`.
-2. Write `public/js/layers/<name>.js` with a default `create(ctx)` that returns the layer object described at the top of `public/js/layers/index.js`, and add it to the list there.
+2. Write `public/js/layers/<name>.js` with a default `create(ctx)` that returns the layer object described at the top of `public/js/layers/index.js` (sources and layers are added in `mount()`, which runs after every style load), and add it to the list and the draw order there.
 
 The summary chip, health indicator, feed integration and refresh logic come for free.
 
 ## What I learned
 
-_Fill this in as you go:_
-
--
--
--
+- **Free is not the same as keyless.** CARTO's basemaps, Esri's imagery and Cesium's default globe content are all "free" and all need a token. The combination that needs none is OpenFreeMap for the vector map, EOX Sentinel-2 cloudless (the global 2016 mosaic is CC BY) for imagery from space, and NASA GIBS as the public-domain safety net.
+- **A globe is one world.** On the flat map every layer had code to copy items to the world copy in view and to split lines at the antimeridian. On the globe that all goes away, replaced by one rule: keep consecutive longitudes within 180° of each other and let the tile cutter wrap anything within ±540°. A satellite's full orbit is one line.
+- **Let the GPU do the per-frame work.** Dead reckoning 10,000 planes on a canvas every frame was the old hot path. Now the planes are a clustered GeoJSON source: MapLibre clusters them from space, draws one SDF icon tinted per feature, and the app only pushes new positions on a cadence that depends on zoom (never below zoom 3, where the movement is sub-pixel).
+- **Styles are documents, not APIs.** Instead of calling `setProjection`, `addLayer` and friends on a live map and hoping the differ keeps them, the app builds the whole style JSON (basemap plus projection, sky, imagery, buildings) with a pure function and swaps it in. Every layer re-mounts itself after each style load, which also makes "the basemap failed to load" a non-event.
+- **Ambient animation needs a budget.** The spin is one 1-second camera ease at a time, chained on `moveend`, so the map renders only while easing and stops for the first gesture, a hidden tab, "reduce motion", an open detail panel or a view filter that would refetch on every step.
+- **Keep the key on the server, and cap what a stranger can spend.** The Brief me button is one route with a 5-second gap and an hourly cap; the browser never sees the key, and the response says what each press cost.

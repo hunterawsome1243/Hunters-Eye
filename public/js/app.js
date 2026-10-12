@@ -1,54 +1,78 @@
 import { getJson } from './api.js';
 import { createFallbacks } from './fallback.js';
+import { createGlobe } from './globe.js';
+import { createBrief } from './ui/brief.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
-import { layerModules } from './layers/index.js';
-import { nearLon } from './ui/format.js';
+import { DRAW_ORDER, layerModules } from './layers/index.js';
 
 const STATUS_POLL_MS = 5000;
 
-const map = L.map('map', {
-  center: [25, -20],
-  zoom: 3,
-  minZoom: 2,
-  maxZoom: 19,
-  worldCopyJump: true,
-  zoomControl: false,
-  preferCanvas: true,
-});
-L.control.zoom({ position: 'bottomright' }).addTo(map);
-L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
-map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>'); // no flag: it has to fit a phone
+const phone = () => matchMedia('(max-width: 760px), (max-height: 500px)').matches || matchMedia('(pointer: coarse)').matches;
 
-// The map underneath the layers: a vector style (OpenFreeMap's dark one by default,
-// set by the server in /api/config) drawn by MapLibre inside Leaflet. It loads on
-// its own, so a basemap problem never stops the data layers. Its credit line comes
-// from the style's own sources.
-async function addBasemap(style) {
-  try {
-    const { maplibreGL } = await import('/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.mjs');
-    maplibreGL({ style }).addTo(map);
-  } catch (err) {
-    console.warn('Basemap unavailable:', err.message);
-  }
+const layers = [];
+const byId = new Map();
+
+const feed = createFeed(document.getElementById('feed'), document.getElementById('feed-count'), {
+  isVisible: (entry) => {
+    const layer = byId.get(entry.source);
+    return !layer || (layer.visible && (layer.acceptsFeed?.(entry) ?? true));
+  },
+  // Aircraft feed ids carry the squawk after the icao ("aircraft:abc123:7700").
+  isCurrent: (entry) => !!detail.key && (entry.id === detail.key || entry.id.startsWith(`${detail.key}:`)),
+  // Ambient: the newest significant event (a strong quake, an Extreme or Severe alert,
+  // an emergency squawk) ripples where it landed as its row arrives.
+  onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
+});
+const detail = createDetailPanel(document.getElementById('detail'), {
+  onShow: ({ latlng, color, radius }) => {
+    feed.refresh({ reveal: true });
+    if (latlng) ripple(latlng, color, radius);
+  },
+  onClose: () => {
+    layers.forEach((l) => l.clearSelection());
+    feed.refresh();
+    globe?.blockSpin('detail', false);
+  },
+});
+const filtersEl = document.getElementById('filters');
+const mapEl = document.getElementById('map');
+
+// The globe. Without WebGL2 it can't be drawn; the feed and status still run.
+let globe = null;
+try {
+  globe = createGlobe(mapEl, { phone: phone(), detail, feed });
+} catch (err) {
+  console.warn('Globe unavailable:', err.message);
+  const msg = document.createElement('div');
+  msg.className = 'map-unsupported';
+  msg.textContent = "This browser can't draw the globe; the feed and status still update.";
+  mapEl.append(msg);
+}
+const map = globe?.map;
+
+// A short pulse on the globe where the selected point sits, so a feed click shows
+// where it landed (alert areas highlight their outline instead).
+function ripple(latlng, color, radius, opts) {
+  globe?.ripple(latlng, color, radius, opts);
 }
 
-// Sidebar: open by default on wide screens, where it pushes the map aside. On phones
-// it rides over the map behind a scrim; a tap on the scrim or a leftward swipe closes it.
+// Sidebar: open by default on wide screens, where it pushes the globe aside. On phones
+// it rides over the globe behind a scrim; a tap on the scrim or a leftward swipe closes it.
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');
 const scrim = document.getElementById('scrim');
 const PHONE = window.matchMedia('(max-width: 760px)');
-let sizing = 0; // frame handle while the map follows the panel's slide
-// The map resizes with the panel instead of snapping once the slide has ended: its
+let sizing = 0; // frame handle while the globe follows the panel's slide
+// The globe resizes with the panel instead of snapping once the slide has ended: its
 // size is re-read every frame, which keeps the centre where it was.
 function followPanel() {
   cancelAnimationFrame(sizing);
   const started = performance.now();
   const follow = () => {
-    map.invalidateSize({ animate: false, debounceMoveend: true });
+    map?.resize();
     sizing = performance.now() - started < 300 ? requestAnimationFrame(follow) : 0;
   };
   sizing = requestAnimationFrame(follow);
@@ -56,7 +80,6 @@ function followPanel() {
 // On phones the open panel is modal: the map and the sheet under the scrim leave the
 // tab order and the accessibility tree (the scrim already takes their taps), and the
 // panel reads as a dialog.
-const mapEl = document.getElementById('map');
 const detailEl = document.getElementById('detail');
 function setModal() {
   const modal = PHONE.matches && document.body.classList.contains('sidebar-open');
@@ -78,13 +101,13 @@ function setSidebar(open) {
   followPanel();
 }
 setSidebar(window.innerWidth > 760);
-// Crossing the phone breakpoint with the panel open slides the map's edge too (from
+// Crossing the phone breakpoint with the panel open slides the globe's edge too (from
 // beside the panel to under it, or back) and changes whether the panel is modal.
 PHONE.addEventListener('change', () => {
   setModal();
   if (document.body.classList.contains('sidebar-open')) followPanel();
 });
-requestAnimationFrame(() => [sidebar, scrim, document.getElementById('map')].forEach((n) => n.classList.remove('no-anim'))); // no slide on load
+requestAnimationFrame(() => [sidebar, scrim, mapEl].forEach((n) => n.classList.remove('no-anim'))); // no slide on load
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
 scrim.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the panel until the close moves it
 scrim.addEventListener('click', () => setSidebar(false));
@@ -148,77 +171,67 @@ setFilters(!window.matchMedia('(max-width: 760px), (max-height: 500px)').matches
 requestAnimationFrame(() => filtersSection.classList.remove('no-anim')); // no fold animation on load
 filtersToggle.addEventListener('click', () => setFilters(filtersSection.classList.contains('closed')));
 
-const layers = [];
-const byId = new Map();
-const feed = createFeed(document.getElementById('feed'), document.getElementById('feed-count'), {
-  isVisible: (entry) => {
-    const layer = byId.get(entry.source);
-    return !layer || (map.hasLayer(layer.layer) && (layer.acceptsFeed?.(entry) ?? true));
-  },
-  // Aircraft feed ids carry the squawk after the icao ("aircraft:abc123:7700").
-  isCurrent: (entry) => !!detail.key && (entry.id === detail.key || entry.id.startsWith(`${detail.key}:`)),
-  // Ambient: the newest significant event (a strong quake, an Extreme or Severe alert,
-  // an emergency squawk) ripples where it landed as its row arrives.
-  onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
-});
-const detail = createDetailPanel(document.getElementById('detail'), {
-  onShow: ({ latlng, color, radius }) => {
-    feed.refresh({ reveal: true });
-    if (latlng) ripple(latlng, color, radius);
-  },
-  onClose: () => {
-    layers.forEach((l) => l.clearSelection());
-    feed.refresh();
-  },
-});
-const filtersEl = document.getElementById('filters');
-
-// A short pulse on the map where the selected point sits, so a feed click shows
-// where it landed (alert areas highlight their outline instead). radius is the
-// marker's, so the ring starts just outside it. An arrival pulses a third time.
-function ripple(latlng, color, radius = 8, { arrive = false } = {}) {
-  const { lat, lng } = L.latLng(latlng);
-  const size = Math.round(radius * 2 + 8);
-  const marker = L.marker([lat, nearLon(lng, map.getCenter().lng)], {
-    icon: L.divIcon({ className: arrive ? 'ripple arrive' : 'ripple', html: `<i style="--c:${color}"></i>`, iconSize: [size, size] }),
-    interactive: false,
-    keyboard: false,
-  }).addTo(map);
-  setTimeout(() => map.removeLayer(marker), arrive ? 2200 : 1500);
-}
-
 let clockOffset = 0; // server clock minus browser clock, from /api/status
 
+// What every layer module gets. Style edits go through the idempotent add*
+// helpers so a module's mount() can run again after each basemap load.
+const noMap = () => {};
 const ctx = {
   map,
+  globe,
+  addSource: globe ? globe.addSource : noMap,
+  addLayer: globe ? globe.addLayer : noMap,
+  addImage: globe ? globe.addImage : noMap,
+  hasGlyphs: globe ? globe.hasGlyphs : () => false,
+  ready: () => !!globe?.ready,
+  blockSpin: (key, on) => globe?.blockSpin(key, on),
+  phone,
+  isVisible: (id) => !!byId.get(id)?.visible,
   clockOffset: () => clockOffset,
-  // Give clickable layers (aircraft) first claim on a click at this point.
-  pick(containerPoint) {
-    return layers.some((l) => map.hasLayer(l.layer) && l.pick?.(containerPoint));
-  },
   feed,
   detail,
   addFilter: (node) => filtersEl.append(node),
   select(owner) {
     for (const l of layers) if (l !== owner) l.clearSelection();
+    globe?.blockSpin('detail', true);
     if (window.innerWidth <= 760) setSidebar(false);
   },
-  isVisible: (id) => map.hasLayer(byId.get(id).layer),
+  viewBounds: () => globe?.viewBounds() ?? null,
+  contains: (lon, lat) => globe?.contains(lon, lat) ?? true,
+  onView: (fn) => globe?.onView(fn),
+  flyTo: (opts) => globe?.flyTo(opts),
+  fitBounds: (bounds, opts) => globe?.fitBounds(bounds, opts),
 };
 
 for (const create of layerModules) {
   const layer = create(ctx);
   layers.push(layer);
   byId.set(layer.id, layer);
-  if (layer.visible) layer.layer.addTo(map);
 }
 
+function applyVisibility(layer) {
+  if (!globe?.ready) return; // mount() will apply it after the style loads
+  for (const id of layer.layerIds) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', layer.visible ? 'visible' : 'none');
+  }
+}
+const interactiveList = () => layers.filter((l) => l.visible).flatMap((l) => l.interactive.map((i) => ({ ...i, owner: l })));
+
+// After every style load (the start style, then the real basemap) the data
+// layers are mounted again, bottom tier first.
+globe?.onStyle(() => {
+  for (const id of DRAW_ORDER) byId.get(id)?.mount();
+  for (const l of layers) applyVisibility(l);
+  globe.setInteractive(interactiveList());
+});
+
 function setLayerVisible(layer, on) {
+  layer.visible = on;
+  applyVisibility(layer);
+  globe?.setInteractive(interactiveList());
   if (on) {
-    layer.layer.addTo(map);
     layer.onShow?.();
   } else {
-    map.removeLayer(layer.layer);
     layer.onHide?.();
     layer.clearSelection();
     if (detail.key?.startsWith(`${layer.id}:`)) detail.hide();
@@ -230,6 +243,23 @@ function setLayerVisible(layer, on) {
 
 const summary = createSummary(document.getElementById('summary'), layers, { onToggle: setLayerVisible });
 const liveStatus = createStatus(document.getElementById('status'), document.getElementById('banner'));
+
+// What the "Brief me" button sends: counts, feed health and the latest events a
+// reader can see, never the raw data. Shown only when the server has a key.
+const brief = createBrief(document.getElementById('brief'), {
+  snapshot: () => ({
+    now: new Date().toISOString(),
+    zoom: map ? Math.round(map.getZoom() * 10) / 10 : null,
+    view: globe?.viewBounds() ?? null,
+    layers: layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, count: l.count() })),
+    feeds: lastSources.map((s) => fallbacks.status(s)).map((s) => ({
+      id: s.id,
+      state: serverDown && s.via !== 'browser' ? 'server unreachable' : s.error ? 'failing' : s.updatedAt ? (s.via === 'browser' ? 'ok via browser' : 'ok') : 'loading',
+      detail: String(s.error || s.note || '').slice(0, 160),
+    })),
+    events: feed.visible(40).map((e) => ({ source: e.source, time: new Date(e.time).toISOString(), title: String(e.title ?? '').slice(0, 160), subtitle: String(e.subtitle ?? '').slice(0, 200) })),
+  }),
+});
 
 // Health changes become feed entries, so a failing feed is visible in the history too.
 const health = new Map();
@@ -270,7 +300,7 @@ let fallbacks = createFallbacks();
 let lastSources = [];
 let serverDown = false;
 
-// Health, chips and layer hints follow what the map shows: the server's data, or
+// Health, chips and layer hints follow what the globe shows: the server's data, or
 // the browser's own while it stands in for a failing source.
 function showStatus() {
   const shown = lastSources.map((s) => fallbacks.status(s));
@@ -291,7 +321,7 @@ function showStatus() {
 // Ambient: the top bar's edge carries an alert tint while an Extreme alert or an
 // emergency squawk is live on a layer that is showing.
 function showAlertTint() {
-  document.body.classList.toggle('alert-live', layers.some((l) => l.urgent && map.hasLayer(l.layer)));
+  document.body.classList.toggle('alert-live', layers.some((l) => l.urgent && l.visible));
 }
 
 async function tick() {
@@ -314,18 +344,21 @@ async function tick() {
   }
 }
 
-// Reaches the map only when no marker or shape took the click (they set
-// bubblingMouseEvents: false) and never for clicks on map controls.
-map.on('click', (e) => {
-  if (!ctx.pick(e.containerPoint)) detail.hide();
-});
-
 // Small handle for scripts/smoke.mjs and for poking around in the console.
-window.__huntersEye = { map, layers, feed, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
+window.__huntersEye = {
+  map,
+  globe,
+  layers,
+  feed,
+  selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false,
+  spin: (on) => globe?.spin.set(on),
+  brief,
+};
 
 getJson('/api/config')
-  .then(({ basemap, fallback }) => {
-    if (basemap) addBasemap(basemap);
+  .then(({ basemap, imagery, fallback, brief: briefConfig }) => {
+    if (basemap) globe?.loadBasemap(basemap, imagery);
+    brief.configure(briefConfig);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => (lastSources.length || serverDown) && showStatus(),
