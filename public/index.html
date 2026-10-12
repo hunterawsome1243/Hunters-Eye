@@ -22,7 +22,8 @@
 
   <main class="layout">
     <div id="banner" class="banner" role="alert"></div>
-    <aside id="sidebar" class="sidebar">
+    <div id="scrim" class="scrim no-anim" aria-hidden="true"></div>
+    <aside id="sidebar" class="sidebar no-anim">
       <section class="panel-section feed-section">
         <h2>Live feed <span id="feed-count" class="muted"></span></h2>
         <ol id="feed" class="feed" aria-live="polite"></ol>
@@ -42,7 +43,7 @@
       </section>
     </aside>
 
-    <div id="map" class="map" aria-label="World map"></div>
+    <div id="map" class="map no-anim" aria-label="World map"></div>
     <div id="connecting" class="connecting show" aria-hidden="true"><span class="dot loading"></span>Connecting to feeds…</div>
 
     <section id="detail" class="detail" hidden aria-live="polite">

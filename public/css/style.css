@@ -205,15 +205,22 @@ body.sidebar-open .connecting { left: calc(50% + var(--sidebar-w) / 2); }
 .detail { transition: top var(--dur-base) var(--ease); }
 .banner.show ~ .detail { top: calc(2 * var(--space-3) + 38px); }
 
-/* Layout: the map fills the window below the top bar; the sidebar slides over it */
+/* Layout: the map fills the window below the top bar; the sidebar slides over it.
+   Closed, the sidebar is also hidden (out of the tab order), after its slide. */
 .layout { position: fixed; inset: var(--topbar-h) 0 0 0; }
 .map { position: absolute; inset: 0; z-index: 0; background: var(--bg); transition: left var(--dur-base) var(--ease); } /* z-index keeps Leaflet's controls under the sidebar */
 body.sidebar-open .map { left: var(--sidebar-w); }
 
 .sidebar { position: absolute; top: 0; bottom: 0; left: 0; width: var(--sidebar-w); z-index: 900;
   background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column;
-  transform: translateX(-100%); transition: transform var(--dur-base) var(--ease); }
-body.sidebar-open .sidebar { transform: none; }
+  transform: translateX(-100%); visibility: hidden;
+  transition: transform var(--dur-base) var(--ease), visibility 0s linear var(--dur-base); }
+body.sidebar-open .sidebar { transform: none; visibility: visible; transition-delay: 0s; }
+.sidebar input[type="range"] { touch-action: none; } /* the thumb drags even where the panel takes swipes */
+/* The scrim dims the map behind the phone sidebar (shown in the phone block below). */
+.scrim { position: absolute; inset: 0; z-index: 955; background: rgba(0, 0, 0, 0.5); opacity: 0; visibility: hidden;
+  transition: opacity var(--dur-base) var(--ease), visibility 0s linear var(--dur-base); }
+.sidebar.dragging, .scrim.dragging, .sidebar.no-anim, .scrim.no-anim, .map.no-anim { transition: none; }
 .panel-section { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
 .panel-section h2 { margin: 0 0 var(--space-2); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--muted); }
@@ -392,7 +399,13 @@ body.sidebar-open .sidebar { transform: none; }
 @media (max-width: 760px) {
   :root { --sidebar-w: min(86vw, 320px); }
   body.sidebar-open .map { left: 0; }
-  .sidebar { box-shadow: var(--shadow-3); }
+  /* The panel rides over the map and the detail sheet behind a scrim; a tap on the
+     scrim or a leftward swipe closes it (vertical gestures still scroll the feed). */
+  .sidebar { box-shadow: var(--shadow-3); z-index: 960; }
+  /* pan-y on the panel and on its own scrollers: a scroller's own touch-action is what
+     the browser consults, and "auto" would turn a sideways swipe into a cancelled scroll. */
+  .sidebar, .sidebar .feed, .sidebar .filters { touch-action: pan-y; }
+  body.sidebar-open .scrim { opacity: 1; visibility: visible; transition-delay: 0s; }
   /* Narrow screens: the sentence wraps as one run of text with the dot inline, the
      banner takes the card's corners, and it hides under the sidebar overlay (the
      pill still says Offline). The sheet is at the bottom, so the card never moves. */
@@ -424,5 +437,5 @@ body.sidebar-open .sidebar { transform: none; }
 @keyframes sheet-out { to { opacity: 0; transform: translateY(calc(var(--drag, 0px) + 24px)); } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  *, *::before, *::after { transition-duration: 1ms !important; transition-delay: 0s !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }

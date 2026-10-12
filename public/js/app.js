@@ -34,15 +34,69 @@ async function addBasemap(style) {
   }
 }
 
-// Sidebar: open by default on wide screens.
+// Sidebar: open by default on wide screens, where it pushes the map aside. On phones
+// it rides over the map behind a scrim; a tap on the scrim or a leftward swipe closes it.
+const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');
+const scrim = document.getElementById('scrim');
+const PHONE = window.matchMedia('(max-width: 760px)');
+let sizing = 0; // frame handle while the map follows the panel's slide
 function setSidebar(open) {
+  if (!open && sidebar.contains(document.activeElement)) sidebarToggle.focus(); // nothing stays focused off screen
   document.body.classList.toggle('sidebar-open', open);
   sidebarToggle.setAttribute('aria-expanded', String(open));
-  setTimeout(() => map.invalidateSize(), 210); // just after the panel's 200ms slide
+  // The map resizes with the panel instead of snapping once the slide has ended: its
+  // size is re-read every frame, which keeps the centre where it was.
+  cancelAnimationFrame(sizing);
+  const started = performance.now();
+  const follow = () => {
+    map.invalidateSize({ animate: false, debounceMoveend: true });
+    sizing = performance.now() - started < 300 ? requestAnimationFrame(follow) : 0;
+  };
+  sizing = requestAnimationFrame(follow);
 }
 setSidebar(window.innerWidth > 760);
+requestAnimationFrame(() => [sidebar, scrim, document.getElementById('map')].forEach((n) => n.classList.remove('no-anim'))); // no slide on load
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
+scrim.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the panel until the close moves it
+scrim.addEventListener('click', () => setSidebar(false));
+
+// A touch swipe to the left drags the phone sidebar closed; the scrim fades with it.
+// touch-action: pan-y leaves vertical gestures to the browser, so the feed still scrolls.
+let swipe = null;
+sidebar.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch' || !PHONE.matches || e.target.closest('input[type="range"], select')) return;
+  swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, t: e.timeStamp, v: 0, on: false };
+});
+sidebar.addEventListener('pointermove', (e) => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x;
+  if (!swipe.on) {
+    if (Math.abs(dx) <= 8 || Math.abs(dx) < Math.abs(e.clientY - swipe.y)) return; // not a sideways swipe yet
+    swipe.on = true;
+    try { sidebar.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    sidebar.classList.add('dragging');
+    scrim.classList.add('dragging');
+  }
+  swipe.v = (Math.min(0, dx) - swipe.dx) / Math.max(1, e.timeStamp - swipe.t); // px per ms, latest movement
+  swipe.t = e.timeStamp;
+  swipe.dx = Math.min(0, dx);
+  sidebar.style.transform = `translateX(${swipe.dx}px)`;
+  scrim.style.opacity = String(1 + swipe.dx / sidebar.offsetWidth);
+});
+function endSwipe(e) {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const { dx, v, on } = swipe;
+  swipe = null;
+  if (!on) return;
+  sidebar.classList.remove('dragging');
+  scrim.classList.remove('dragging');
+  sidebar.style.transform = ''; // the slide carries on from here, closing or snapping back
+  scrim.style.opacity = '';
+  if (e.type !== 'pointercancel' && (dx < -sidebar.offsetWidth / 3 || (v < -0.5 && dx < -40))) setSidebar(false);
+}
+sidebar.addEventListener('pointerup', endSwipe);
+sidebar.addEventListener('pointercancel', endSwipe);
 
 // Filters fold away under the feed; closed to start with where the sidebar is short.
 const filtersSection = document.querySelector('.filters-section');
