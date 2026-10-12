@@ -1,20 +1,26 @@
 // End-to-end check: starts the server, opens the dashboard in headless Chromium,
-// waits for every layer to load, clicks an item in each, and fails on any console
-// error. Uses the live feeds by default; `--fake` swaps in scripts/fake-upstream.mjs.
+// waits for every layer to load, clicks an item in each, exercises the globe
+// (clusters, ground track, filters, spin) and fails on any console error.
+// Uses the live feeds by default; `--fake` swaps in scripts/fake-upstream.mjs.
 //
 //   npm run smoke            # live data (needs internet)
-//   npm run smoke -- --fake  # offline stand-ins for the upstream APIs
+//   npm run smoke -- --fake  # offline stand-ins for the upstream APIs and tiles
 //   npm run smoke -- --fake --server-blocked   # the server can't reach OpenSky and
 //                            # CelesTrak, so the browser fallback must fill in
 //   npm run smoke -- --fake --browser-blocked  # ...and the browser is refused too (CORS)
+//   npm run smoke -- --fake --shots            # also save docs/globe-*.png and a phone run
 //
-// Needs a Chromium for Playwright: `npx playwright install chromium` once.
+// Needs a Chromium for Playwright: `npx playwright install chromium` once. The globe
+// needs WebGL2; headless Chromium gets it from SwiftShader (software), so frames are
+// slow and every wait here is event-based, never a frame-rate assertion.
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { startFakeUpstream } from './fake-upstream.mjs';
+import { fallbackStyle } from '../public/js/globe/style.js';
 
 const fake = process.argv.includes('--fake');
+const shots = process.argv.includes('--shots');
 const browserBlocked = process.argv.includes('--browser-blocked');
 const serverBlocked = browserBlocked || process.argv.includes('--server-blocked');
 if (serverBlocked && !fake) throw new Error('--server-blocked and --browser-blocked need --fake');
@@ -58,19 +64,37 @@ await new Promise((resolve, reject) => {
   server.on('exit', (code) => reject(new Error(`server exited with ${code}\n${serverLog.join('')}`)));
 });
 
-const launchOpts = process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {};
+const launchOpts = { args: ['--enable-unsafe-swiftshader'] };
+if (process.env.CHROMIUM_PATH) launchOpts.executablePath = process.env.CHROMIUM_PATH;
 const browser = await chromium.launch(launchOpts);
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const consoleErrors = [];
 // With --browser-blocked, Chromium itself logs the refused cross-origin requests.
 const expectedError = (m) => browserBlocked && (m.text().includes('/nocors/') || m.location().url.includes('/nocors/'));
-page.on('console', (m) => m.type() === 'error' && !expectedError(m) && consoleErrors.push(m.text()));
-page.on('pageerror', (e) => consoleErrors.push(e.message));
-if (fake) {
-  // The basemap comes from the internet; serve a plain dark style so the run is fully offline.
-  const style = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c0c0c' } }] };
-  await page.route(/tiles\.openfreemap\.org/, (r) => r.fulfill({ json: style }));
+
+async function openPage(options = {}) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, ...options });
+  page.on('console', (m) => m.type() === 'error' && !expectedError(m) && consoleErrors.push(m.text()));
+  page.on('pageerror', (e) => consoleErrors.push(e.message));
+  if (fake) {
+    // The basemap and imagery come from the internet. Serve the app's own offline
+    // style (dark sphere + continents) for the style URL and empty tiles for the rest.
+    await page.route(/tiles\.openfreemap\.org\/styles/, (r) => r.fulfill({ json: fallbackStyle() }));
+    await page.route(/tiles\.openfreemap\.org\/(planet|fonts|sprites|natural_earth)|tiles\.maps\.eox\.at|gibs\.earthdata\.nasa\.gov/, (r) => r.fulfill({ status: 204 }));
+  }
+  return page;
 }
+const page = await openPage();
+
+// Wait for the globe to finish drawing (sources loaded, tiles in). Capped: on
+// SwiftShader a frame is slow, and some sources never stop updating.
+const idle = (p = page, ms = 15_000) => p.evaluate((ms) => new Promise((resolve) => {
+  const m = window.__huntersEye.map;
+  const t = setTimeout(() => resolve('timeout'), ms);
+  m.once('idle', () => { clearTimeout(t); resolve('idle'); });
+  m.triggerRepaint();
+}), ms);
+const ready = (p = page) => p.waitForFunction(() => window.__huntersEye?.globe?.ready === true, null, { timeout: 30_000 });
+const evalMap = (fn, arg) => page.evaluate(fn, arg);
 
 const results = [];
 let failed = false;
@@ -80,7 +104,9 @@ function check(name, ok, detail = '') {
 }
 
 try {
-  await page.goto(`http://localhost:${port}/`);
+  await page.goto(`http://localhost:${port}/?spin=off`);
+  await ready();
+  await idle();
   const layerIds = await page.evaluate(() => [...document.querySelectorAll('.chip .name')].map((n) => n.textContent));
   // Wait until every source has either data or an error.
   const deadline = Date.now() + (fake ? 30_000 : 120_000);
@@ -109,12 +135,15 @@ try {
     }
   }
   check('layers present', layerIds.length === status.sources.length, layerIds.join(', '));
-  const basemap = await page.evaluate(() => {
-    const layer = Object.values(window.__huntersEye.map._layers).find((l) => l.getMaplibreMap);
-    const gl = layer?.getMaplibreMap();
-    return gl ? { loaded: gl.isStyleLoaded() !== false, canvas: !!gl.getCanvas() } : null;
-  });
-  check('basemap drawn by MapLibre', !!basemap?.canvas && basemap.loaded, JSON.stringify(basemap));
+  const globeState = await evalMap((fake) => {
+    const { map, globe } = window.__huntersEye;
+    return {
+      ready: globe.ready, canvas: !!map.getCanvas(), imagery: !!map.getLayer('he-imagery'),
+      projection: Array.isArray(map.getProjection()?.type), land: !!map.getLayer('he-land-fill'), fake,
+      slots: ['shapes', 'tracks', 'planes', 'points', 'labels', 'top'].every((t) => !!map.getLayer(`he-slot-${t}`)),
+    };
+  }, fake);
+  check('globe drawn by MapLibre', globeState.ready && globeState.canvas && globeState.imagery && globeState.projection && globeState.slots && (!fake || globeState.land), JSON.stringify(globeState));
 
   const feedItems = await page.locator('#feed button').count();
   check('live feed has entries', feedItems > 0, `${feedItems} entries`);
@@ -125,18 +154,66 @@ try {
       const app = window.__huntersEye;
       return app ? app.selectFirst(id) : false;
     }, s.id);
-    await page.waitForTimeout(400);
+    await idle();
     const title = (await page.locator('#detail:not([hidden]) .detail-title').textContent().catch(() => '')) || '';
     check(`${s.name}: clicking an item opens details`, opened && title.length > 0, title.trim());
+  }
+
+  // The satellite ground track is one line that wraps around the globe.
+  if (hasData('satellites')) {
+    const track = await evalMap(async () => {
+      const src = window.__huntersEye.map.getSource('he-satellites-track');
+      if (!src) return { error: 'no track source' };
+      const data = await src.getData();
+      const next = data.features.find((f) => f.properties.phase === 'next');
+      if (!next) return { error: 'no next-orbit feature' };
+      const lons = next.geometry.coordinates.map(([lon]) => lon);
+      const maxStep = Math.max(...lons.slice(1).map((l, i) => Math.abs(l - lons[i])));
+      return { maxStep, span: Math.max(...lons) - Math.min(...lons), points: lons.length };
+    });
+    check('Satellites: ground track wraps around the globe', !track.error && track.maxStep < 180 && track.span > 300, JSON.stringify(track));
+  }
+  await page.keyboard.press('Escape');
+
+  // The magnitude slider filters on the GPU, so no quake circle may remain at 7+.
+  if (hasData('earthquakes')) {
+    const slider = page.locator('.filter input[type="range"]').first();
+    await slider.fill('7');
+    await idle();
+    const left = await evalMap(() => window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-earthquakes'] }).length);
+    await slider.fill('2.5');
+    await idle();
+    const back = await evalMap(() => window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-earthquakes'] }).length);
+    check('Earthquakes: magnitude filter hides circles', left === 0 && back >= 0, `${left} at 7+, ${back} at 2.5+`);
   }
 
   // A real click on the canvas: focus a plane (it ends up mid-map), close the
   // panel, then click the middle of the map and expect that plane again.
   if (hasData('aircraft') && status.sources.some((s) => s.id === 'aircraft' && (s.updatedAt || viaBrowser(s.id)))) {
-    await page.evaluate(() => window.__huntersEye.selectFirst('aircraft'));
-    await page.waitForTimeout(1500);
+    // From space, planes are density bubbles; closer in, individual icons.
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [-20, 25], zoom: 2 }));
+    await idle();
+    const far = await evalMap(() => ({
+      clusters: window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-aircraft-cluster'] }).length,
+      planes: window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-aircraft'] }).length,
+    }));
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [0, 48], zoom: 7 }));
+    await idle();
+    const near = await evalMap(() => ({
+      clusters: window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-aircraft-cluster'] }).length,
+      planes: window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-aircraft'] }).length,
+    }));
+    check('Aircraft: clustered from space, individual planes up close',
+      far.clusters > 0 && far.planes <= Math.max(2, far.clusters * 0.02) && near.clusters === 0 && near.planes > 0,
+      `z2 ${JSON.stringify(far)}, z7 ${JSON.stringify(near)}`);
+
+    // A real click on the canvas: focus a plane (it ends up mid-map), close the
+    // panel, then click the middle of the map and expect that plane again.
+    await evalMap(() => window.__huntersEye.selectFirst('aircraft'));
+    await idle();
     const want = await page.locator('#detail .detail-title').textContent();
     await page.keyboard.press('Escape');
+    await idle();
     const box = await page.locator('#map').boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(300);
@@ -144,19 +221,20 @@ try {
     check('Aircraft: clicking a plane on the map opens it', got === want, `${want} -> ${got}`);
 
     // Map controls and point markers must not be swallowed by planes underneath.
-    const zoomBefore = await page.evaluate(() => window.__huntersEye.map.getZoom());
-    await page.locator('.leaflet-control-zoom-in').click();
-    await page.waitForTimeout(600);
-    const zoomAfter = await page.evaluate(() => window.__huntersEye.map.getZoom());
-    check('Zoom button works over aircraft', zoomAfter === zoomBefore + 1, `${zoomBefore} -> ${zoomAfter}`);
+    const zoomBefore = await evalMap(() => window.__huntersEye.map.getZoom());
+    await page.locator('.maplibregl-ctrl-zoom-in').click();
+    await page.waitForFunction((before) => Math.abs(window.__huntersEye.map.getZoom() - before - 1) < 0.01, zoomBefore, { timeout: 5000 }).catch(() => {});
+    const zoomAfter = await evalMap(() => window.__huntersEye.map.getZoom());
+    check('Zoom button works over aircraft', Math.abs(zoomAfter - zoomBefore - 1) < 0.01, `${zoomBefore} -> ${zoomAfter}`);
 
-    const quake = await page.evaluate(() => {
+    const quake = await evalMap(() => {
       const app = window.__huntersEye;
       app.selectFirst('earthquakes');
       return document.querySelector('#detail .detail-title').textContent;
     });
-    await page.waitForTimeout(1500);
+    await idle();
     await page.keyboard.press('Escape');
+    await idle();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(300);
     const clicked = (await page.locator('#detail:not([hidden]) .detail-title').textContent().catch(() => '')) || '';
@@ -178,10 +256,46 @@ try {
     }
   }
 
-  await page.waitForTimeout(1500);
+  if (!fake) {
+    const labels = await evalMap(() => !!window.__huntersEye.map.getLayer('he-satellites-label'));
+    check('Satellites: labels exist with the live basemap', labels);
+  }
+
+  // Reduced motion: the ambient spin never starts.
+  const quiet = await openPage({ reducedMotion: 'reduce' });
+  await quiet.goto(`http://localhost:${port}/`);
+  await ready(quiet);
+  const lng0 = await quiet.evaluate(() => window.__huntersEye.map.getCenter().lng);
+  await quiet.waitForTimeout(3000);
+  const lng1 = await quiet.evaluate(() => window.__huntersEye.map.getCenter().lng);
+  check('Reduced motion stops the spin', lng0 === lng1, `${lng0} -> ${lng1}`);
+  await quiet.close();
+
+  await idle();
   mkdirSync('docs', { recursive: true });
   const mode = browserBlocked ? '-browser-blocked' : serverBlocked ? '-server-blocked' : fake ? '-fake' : '';
   await page.screenshot({ path: `docs/screenshot${mode}.png` });
+
+  if (shots) {
+    await page.keyboard.press('Escape');
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [-20, 25], zoom: 1.8, pitch: 0, bearing: 0 }));
+    await idle();
+    await page.screenshot({ path: 'docs/globe-space.png' });
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [-97, 36], zoom: 5.5, pitch: 50, bearing: 20 }));
+    await idle();
+    await page.screenshot({ path: 'docs/globe-region.png' });
+
+    const phone = await openPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await phone.goto(`http://localhost:${port}/?spin=off`);
+    await ready(phone);
+    await idle(phone);
+    await phone.evaluate(() => window.__huntersEye.selectFirst('earthquakes'));
+    await idle(phone);
+    const controlsHidden = await phone.evaluate(() => getComputedStyle(document.querySelector('.maplibregl-ctrl-bottom-right')).visibility === 'hidden');
+    check('Phone: bottom controls hide while the detail sheet is open', controlsHidden);
+    await phone.screenshot({ path: 'docs/screenshot-phone.png' });
+    await phone.close();
+  }
 } catch (err) {
   check('smoke run', false, err.message);
 } finally {

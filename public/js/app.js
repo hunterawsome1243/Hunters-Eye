@@ -1,94 +1,117 @@
 import { getJson } from './api.js';
 import { createFallbacks } from './fallback.js';
+import { createGlobe } from './globe.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
-import { layerModules } from './layers/index.js';
+import { DRAW_ORDER, layerModules } from './layers/index.js';
 
 const STATUS_POLL_MS = 5000;
 
-const map = L.map('map', {
-  center: [25, -20],
-  zoom: 3,
-  minZoom: 2,
-  maxZoom: 19,
-  worldCopyJump: true,
-  zoomControl: false,
-  preferCanvas: true,
-});
-L.control.zoom({ position: 'bottomright' }).addTo(map);
-L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
-map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>'); // no flag: it has to fit a phone
+const phone = () => matchMedia('(max-width: 760px), (max-height: 500px)').matches || matchMedia('(pointer: coarse)').matches;
 
-// The map underneath the layers: a vector style (OpenFreeMap's dark one by default,
-// set by the server in /api/config) drawn by MapLibre inside Leaflet. It loads on
-// its own, so a basemap problem never stops the data layers. Its credit line comes
-// from the style's own sources.
-async function addBasemap(style) {
-  try {
-    const { maplibreGL } = await import('/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.mjs');
-    maplibreGL({ style }).addTo(map);
-  } catch (err) {
-    console.warn('Basemap unavailable:', err.message);
-  }
+const layers = [];
+const byId = new Map();
+const detail = createDetailPanel(document.getElementById('detail'), {
+  onClose: () => {
+    layers.forEach((l) => l.clearSelection());
+    globe?.blockSpin('detail', false);
+  },
+});
+const feed = createFeed(document.getElementById('feed'), document.getElementById('feed-count'), {
+  isVisible: (entry) => {
+    const layer = byId.get(entry.source);
+    return !layer || (layer.visible && (layer.acceptsFeed?.(entry) ?? true));
+  },
+});
+const filtersEl = document.getElementById('filters');
+const mapEl = document.getElementById('map');
+
+// The globe. Without WebGL2 it can't be drawn; the feed and status still run.
+let globe = null;
+try {
+  globe = createGlobe(mapEl, { phone: phone(), detail, feed });
+} catch (err) {
+  console.warn('Globe unavailable:', err.message);
+  const msg = document.createElement('div');
+  msg.className = 'map-unsupported';
+  msg.textContent = "This browser can't draw the globe; the feed and status still update.";
+  mapEl.append(msg);
 }
+const map = globe?.map;
 
 // Sidebar: open by default on wide screens.
 const sidebarToggle = document.getElementById('sidebar-toggle');
 function setSidebar(open) {
   document.body.classList.toggle('sidebar-open', open);
   sidebarToggle.setAttribute('aria-expanded', String(open));
-  setTimeout(() => map.invalidateSize(), 210); // just after the panel's 200ms slide
+  setTimeout(() => map?.resize(), 210); // just after the panel's 200ms slide
 }
 setSidebar(window.innerWidth > 760);
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
 
-const layers = [];
-const byId = new Map();
-const detail = createDetailPanel(document.getElementById('detail'), {
-  onClose: () => layers.forEach((l) => l.clearSelection()),
-});
-const feed = createFeed(document.getElementById('feed'), document.getElementById('feed-count'), {
-  isVisible: (entry) => {
-    const layer = byId.get(entry.source);
-    return !layer || (map.hasLayer(layer.layer) && (layer.acceptsFeed?.(entry) ?? true));
-  },
-});
-const filtersEl = document.getElementById('filters');
-
 let clockOffset = 0; // server clock minus browser clock, from /api/status
 
+// What every layer module gets. Style edits go through the idempotent add*
+// helpers so a module's mount() can run again after each basemap load.
+const noMap = () => {};
 const ctx = {
   map,
+  globe,
+  addSource: globe ? globe.addSource : noMap,
+  addLayer: globe ? globe.addLayer : noMap,
+  addImage: globe ? globe.addImage : noMap,
+  hasGlyphs: globe ? globe.hasGlyphs : () => false,
+  ready: () => !!globe?.ready,
+  blockSpin: (key, on) => globe?.blockSpin(key, on),
+  phone,
+  isVisible: (id) => !!byId.get(id)?.visible,
   clockOffset: () => clockOffset,
-  // Give clickable layers (aircraft) first claim on a click at this point.
-  pick(containerPoint) {
-    return layers.some((l) => map.hasLayer(l.layer) && l.pick?.(containerPoint));
-  },
   feed,
   detail,
   addFilter: (node) => filtersEl.append(node),
   select(owner) {
     for (const l of layers) if (l !== owner) l.clearSelection();
+    globe?.blockSpin('detail', true);
     if (window.innerWidth <= 760) setSidebar(false);
   },
-  isVisible: (id) => map.hasLayer(byId.get(id).layer),
+  viewBounds: () => globe?.viewBounds() ?? null,
+  contains: (lon, lat) => globe?.contains(lon, lat) ?? true,
+  onView: (fn) => globe?.onView(fn),
+  flyTo: (opts) => globe?.flyTo(opts),
+  fitBounds: (bounds, opts) => globe?.fitBounds(bounds, opts),
 };
 
 for (const create of layerModules) {
   const layer = create(ctx);
   layers.push(layer);
   byId.set(layer.id, layer);
-  if (layer.visible) layer.layer.addTo(map);
 }
 
+function applyVisibility(layer) {
+  if (!globe?.ready) return; // mount() will apply it after the style loads
+  for (const id of layer.layerIds) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', layer.visible ? 'visible' : 'none');
+  }
+}
+const interactiveList = () => layers.filter((l) => l.visible).flatMap((l) => l.interactive.map((i) => ({ ...i, owner: l })));
+
+// After every style load (the start style, then the real basemap) the data
+// layers are mounted again, bottom tier first.
+globe?.onStyle(() => {
+  for (const id of DRAW_ORDER) byId.get(id)?.mount();
+  for (const l of layers) applyVisibility(l);
+  globe.setInteractive(interactiveList());
+});
+
 function setLayerVisible(layer, on) {
+  layer.visible = on;
+  applyVisibility(layer);
+  globe?.setInteractive(interactiveList());
   if (on) {
-    layer.layer.addTo(map);
     layer.onShow?.();
   } else {
-    map.removeLayer(layer.layer);
     layer.onHide?.();
     layer.clearSelection();
     if (detail.key?.startsWith(`${layer.id}:`)) detail.hide();
@@ -165,18 +188,18 @@ async function tick() {
   }
 }
 
-// Reaches the map only when no marker or shape took the click (they set
-// bubblingMouseEvents: false) and never for clicks on map controls.
-map.on('click', (e) => {
-  if (!ctx.pick(e.containerPoint)) detail.hide();
-});
-
 // Small handle for scripts/smoke.mjs and for poking around in the console.
-window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
+window.__huntersEye = {
+  map,
+  globe,
+  layers,
+  selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false,
+  spin: (on) => globe?.spin.set(on),
+};
 
 getJson('/api/config')
-  .then(({ basemap, fallback }) => {
-    if (basemap) addBasemap(basemap);
+  .then(({ basemap, imagery, fallback }) => {
+    if (basemap) globe?.loadBasemap(basemap, imagery);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => lastSources.length && showStatus(),
