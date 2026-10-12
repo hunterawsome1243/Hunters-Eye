@@ -4,7 +4,7 @@ import { SourcePoller } from './lib/poller.js';
 
 const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 
-export function createApp(sources, pollerOptions) {
+export function createApp(sources, pollerOptions, { browserFallback = process.env.BROWSER_FALLBACK !== 'off' } = {}) {
   const pollers = new Map(sources.map((s) => [s.id, new SourcePoller(s, pollerOptions)]));
   const app = express();
   app.disable('x-powered-by');
@@ -12,10 +12,18 @@ export function createApp(sources, pollerOptions) {
   app.use(express.static(root('public')));
   app.use('/vendor/leaflet', express.static(root('node_modules/leaflet/dist')));
   app.use('/vendor/satellite.js', express.static(root('node_modules/satellite.js/dist')));
+  app.use('/shared', express.static(root('shared')));
 
   // For a host's health checks. Unlike /api/status it doesn't count as a viewer,
   // so it never keeps the upstream feeds polling on its own.
   app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  // Read once by the browser. `fallback` lists the sources the browser may fetch
+  // itself, and from where, while this server can't reach them (public/js/fallback.js).
+  app.get('/api/config', (req, res) => {
+    const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
+    res.json({ fallback: Object.fromEntries(fallback) });
+  });
 
   // One cheap call the browser makes every few seconds: health, counts and versions
   // of every source. The browser fetches a source's data only when its version moves.

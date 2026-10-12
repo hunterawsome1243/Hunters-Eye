@@ -285,6 +285,7 @@ export default function create(ctx) {
       container.classList.remove('hit');
     },
     count: () => (onlyInView ? inViewCount : aircraft.length),
+    fetchOptions: () => ({ bbox: onlyInView ? viewBox() : null }),
     onStatus(s) {
       const every = s.intervalMs >= 60_000 ? `${Math.round(s.intervalMs / 60_000)} min` : `${Math.round(s.intervalMs / 1000)} s`;
       hint.textContent = `${s.note ? `${s.note.split('.')[0]}.` : ''} Refreshes every ${every}${onlyInView ? '; a smaller view refreshes faster' : ''}.`.trim();

@@ -3,13 +3,14 @@
 //     id, name, source, color,   // id matches the server source id (server/sources/)
 //     layer,                      // a Leaflet layer added to / removed from the map by the toggle
 //     visible,                    // initial toggle state
-//     update(data),               // called with fresh data from /api/sources/<id>
+//     update(data),               // fresh data from /api/sources/<id>, or the same shape from the browser fallback
 //     count(),                    // number shown in the summary bar
 //     clearSelection(),           // another layer took the selection
 //     focusFirst(),               // select a representative item (used by the smoke test)
 //     acceptsFeed?(entry),        // hide some of this layer's feed entries (filters)
 //     pick?(containerPoint),     // claim a click at this point (canvas layers); return true if taken
-//     onStatus?(status),         // the server's latest status for this source
+//     onStatus?(status),         // the latest status for this source (the server's, or the browser fallback's)
+//     fetchOptions?(),           // what the browser fallback should fetch, like the server's options
 //     onShow?(), onHide?(),
 //   }
 // ctx gives { map, feed, detail, addFilter(node), select(layer), isVisible(id), pick(point), clockOffset() }.

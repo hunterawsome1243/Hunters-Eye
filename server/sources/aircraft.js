@@ -1,93 +1,33 @@
 import { intervalFromEnv } from '../lib/env.js';
 import { HttpError, request } from '../lib/http.js';
+import {
+  ANONYMOUS_CREDITS,
+  CLIENT_CREDITS,
+  FIELDS,
+  creditCost,
+  delayFor as sharedDelayFor,
+  normalizeBbox,
+  normalizeStates,
+  statesQuery,
+} from '../../shared/opensky.js';
 
-// OpenSky Network REST API, /states/all.
-// Docs: https://openskynetwork.github.io/opensky-api/rest.html
-// Anonymous use gets 400 credits a day; a free account's API client gets 4000.
-// A request costs 1-4 credits depending on the bounding box area, so we wait
-// cost x (24h / daily credits) after each request, plus a safety margin. That
-// keeps a server running all day inside the budget whatever the box.
+// OpenSky Network REST API, /states/all. The budgeting and parsing live in
+// shared/opensky.js, which the browser fallback uses too.
 const API = process.env.OPENSKY_URL || 'https://opensky-network.org/api';
 const TOKEN_URL =
   process.env.OPENSKY_TOKEN_URL ||
   'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 const CLIENT_ID = process.env.OPENSKY_CLIENT_ID?.trim();
 const CLIENT_SECRET = process.env.OPENSKY_CLIENT_SECRET?.trim();
-const DAY_MS = 86_400_000;
-const SAFETY = 1.15;
-const MIN_DELAY_MS = 10_000; // OpenSky's own time resolution for anonymous users
 
-export const FIELDS = ['icao24', 'callsign', 'country', 'lon', 'lat', 'altitude', 'onGround', 'velocity', 'track', 'verticalRate', 'squawk', 'timePosition', 'lastContact', 'category', 'geoAltitude'];
+export { FIELDS, creditCost, normalizeBbox, normalizeStates };
 
 export function dailyCredits(authenticated = !!(CLIENT_ID && CLIENT_SECRET)) {
-  return authenticated ? 4000 : 400;
-}
-
-export function creditCost(bbox) {
-  if (!bbox) return 4;
-  const area = (bbox.lamax - bbox.lamin) * (bbox.lomax - bbox.lomin);
-  if (area <= 25) return 1;
-  if (area <= 100) return 2;
-  if (area <= 400) return 3;
-  return 4;
+  return authenticated ? CLIENT_CREDITS : ANONYMOUS_CREDITS;
 }
 
 export function delayFor(bbox, credits = dailyCredits()) {
-  return Math.max(MIN_DELAY_MS, Math.ceil(((creditCost(bbox) * DAY_MS) / credits) * SAFETY));
-}
-
-const wrap = (lon) => ((((lon + 180) % 360) + 360) % 360) - 180;
-const round2 = (n) => Math.round(n * 100) / 100;
-
-// Turn the browser's map bounds into a box OpenSky accepts. Pads it so small pans
-// stay covered, and falls back to the whole world (null) for views that cross the
-// antimeridian or are so large a box saves no credits.
-export function normalizeBbox(input) {
-  if (!input) return null;
-  const vals = ['lamin', 'lomin', 'lamax', 'lomax'].map((k) => Number(input[k]));
-  if (vals.some((v) => !Number.isFinite(v))) throw new Error('bbox needs numeric lamin, lomin, lamax, lomax');
-  let [lamin, lomin, lamax, lomax] = vals;
-  if (lamax <= lamin || lomax <= lomin) throw new Error('bbox is empty');
-  const padLat = (lamax - lamin) * 0.15;
-  const padLon = (lomax - lomin) * 0.15;
-  lamin = Math.max(-90, lamin - padLat);
-  lamax = Math.min(90, lamax + padLat);
-  lomin -= padLon;
-  lomax += padLon;
-  if (lomax - lomin >= 360) return null;
-  const shift = wrap(lomin) - lomin;
-  lomin += shift;
-  lomax += shift;
-  if (lomax > 180) return null;
-  const bbox = { lamin: round2(lamin), lomin: round2(lomin), lamax: round2(lamax), lomax: round2(lomax) };
-  return creditCost(bbox) === 4 ? null : bbox;
-}
-
-export function normalizeStates(json) {
-  const states = (json.states || [])
-    .filter((s) => s[5] != null && s[6] != null)
-    .map((s) => [
-      s[0],
-      (s[1] || '').trim(),
-      s[2],
-      round5(s[5]),
-      round5(s[6]),
-      s[7] ?? s[13] ?? null,
-      !!s[8],
-      s[9],
-      s[10],
-      s[11],
-      s[14] || null,
-      s[3] ?? s[4],
-      s[4],
-      s[17] ?? null,
-      s[13] ?? null,
-    ]);
-  return { time: (json.time ?? Math.floor(Date.now() / 1000)) * 1000, fields: FIELDS, states };
-}
-
-function round5(n) {
-  return Math.round(n * 1e5) / 1e5;
+  return sharedDelayFor(bbox, credits);
 }
 
 let token = null; // { value, expiresAt }
@@ -118,8 +58,7 @@ function currentBbox() {
 }
 
 async function fetchStates(box, retry = true) {
-  const params = new URLSearchParams({ extended: '1' });
-  if (box) for (const [k, v] of Object.entries(box)) params.set(k, v);
+  const params = statesQuery(box);
   const auth = await getToken();
   try {
     return await request(`${API}/states/all?${params}`, {
@@ -141,6 +80,9 @@ export default {
   name: 'Aircraft',
   intervalMs: () => overrideMs || delayFor(currentBbox()),
   errorRetryMs: 120_000,
+  // If this server can't reach OpenSky, browsers fetch from here themselves
+  // (public/js/fallback.js), anonymously: the API client secret never leaves the server.
+  browserUrl: process.env.OPENSKY_BROWSER_URL || API,
   describe: () => `${CLIENT_ID ? 'OpenSky API client' : 'anonymous OpenSky'}, ${dailyCredits()} credits/day`,
   setOptions(opts) {
     bbox = normalizeBbox(opts.bbox);

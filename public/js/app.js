@@ -1,4 +1,5 @@
 import { getJson } from './api.js';
+import { createFallbacks } from './fallback.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createFeed } from './ui/feed.js';
 import { createSummary } from './ui/summary.js';
@@ -119,17 +120,31 @@ async function loadSource(s) {
   }
 }
 
+// Fills in for sources the server can't reach (see fallback.js). Created once
+// /api/config has said which sources may fall back, and to where.
+let fallbacks = createFallbacks();
+let lastSources = [];
+
+// Health, chips and layer hints follow what the map shows: the server's data, or
+// the browser's own while it stands in for a failing source.
+function showStatus() {
+  const shown = lastSources.map((s) => fallbacks.status(s));
+  shown.forEach(noteHealth);
+  for (const s of shown) byId.get(s.id)?.onStatus?.(s);
+  summary.update(shown);
+}
+
 async function tick() {
   let delay = STATUS_POLL_MS;
   try {
     const { sources, serverTime } = await getJson('/api/status');
     clockOffset = serverTime - Date.now();
     if (sources.some((s) => s.loading)) delay = 1000; // first load: pick data up as soon as it lands
-    sources.forEach(noteHealth);
-    for (const s of sources) byId.get(s.id)?.onStatus?.(s);
+    lastSources = sources;
     await Promise.all(sources.map(loadSource));
-    summary.update(sources);
+    showStatus();
   } catch {
+    lastSources = [];
     summary.setServerDown();
   } finally {
     setTimeout(tick, delay);
@@ -144,4 +159,14 @@ map.on('click', (e) => {
 
 // Small handle for scripts/smoke.mjs and for poking around in the console.
 window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
-tick();
+
+getJson('/api/config')
+  .then(({ fallback }) => {
+    fallbacks = createFallbacks(fallback, {
+      onData: (id, data) => byId.get(id)?.update(data),
+      onChange: () => lastSources.length && showStatus(),
+      options: (id) => byId.get(id)?.fetchOptions?.() ?? {},
+    });
+  })
+  .catch((err) => console.warn('No browser fallback:', err.message))
+  .finally(tick);
