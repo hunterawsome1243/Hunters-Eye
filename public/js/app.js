@@ -48,6 +48,7 @@ sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classLis
 const filtersSection = document.querySelector('.filters-section');
 const filtersToggle = document.getElementById('filters-toggle');
 function setFilters(open) {
+  filtersSection.classList.toggle('open', open);
   filtersSection.classList.toggle('closed', !open);
   filtersToggle.setAttribute('aria-expanded', String(open));
 }

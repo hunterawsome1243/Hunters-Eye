@@ -25,7 +25,7 @@ const ALTITUDE_BANDS = [
 function altitudeColor(a) {
   if (a.onGround) return GROUND_COLOR;
   const alt = a.altitude ?? 0;
-  return ALTITUDE_BANDS.find(([max]) => max > 0 && alt < max)[1];
+  return (ALTITUDE_BANDS.find(([max]) => max > 0 && alt < max) ?? ALTITUDE_BANDS.at(-1))[1];
 }
 
 // Thousands of aircraft as DOM markers would crawl, so they are painted on one

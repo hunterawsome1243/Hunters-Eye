@@ -223,14 +223,24 @@ body.sidebar-open .sidebar { transform: none; }
 .section-toggle:active { background: var(--panel-3); }
 .section-toggle:focus-visible { box-shadow: var(--ring-inset); }
 .section-toggle svg { transition: transform var(--dur-base) var(--ease); }
-.section-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
 .collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--dur-base) var(--ease); }
-.collapse-body { min-height: 0; overflow: hidden; visibility: visible; transition: visibility 0s linear 0s; }
+.collapse-body { min-height: 0; overflow: hidden; margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1); /* room for focus rings */
+  visibility: visible; transition: visibility 0s linear 0s; }
 .filters-section.closed .collapse { grid-template-rows: 0fr; }
 .filters-section.closed .collapse-body { visibility: hidden; transition: visibility 0s linear var(--dur-base); }
+.filters-section.closed .section-toggle svg { transform: rotate(-90deg); }
 .filters-section.no-anim .collapse, .filters-section.no-anim .collapse-body, .filters-section.no-anim .section-toggle svg { transition: none; }
-.filters { display: grid; gap: var(--space-3); padding: 0 var(--space-1) var(--space-4); margin: 0 calc(-1 * var(--space-1));
-  max-height: 50vh; overflow-y: auto; overscroll-behavior: contain; }
+.filters { display: grid; gap: var(--space-3); padding: 0 var(--space-1) var(--space-4); margin: 0 calc(-1 * var(--space-1)); }
+/* Short screens: the fold starts closed (app.js confirms it once loaded) and, opened, the
+   pane scrolls at under half the height so a few feed rows stay in view. */
+@media (max-width: 760px), (max-height: 500px) {
+  .filters-section:not(.open) .collapse { grid-template-rows: 0fr; }
+  .filters-section:not(.open) .collapse-body { visibility: hidden; }
+  .filters-section:not(.open) .section-toggle svg { transform: rotate(-90deg); }
+}
+@media (max-height: 600px) {
+  .filters { max-height: 36vh; overflow-y: auto; overscroll-behavior: contain; }
+}
 .filter label { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
 .filter label:has(input, select) { cursor: pointer; }
 .filter input[type=range] { width: 100%; accent-color: var(--accent); margin: var(--space-2) 0 0; cursor: pointer;
@@ -245,7 +255,7 @@ body.sidebar-open .sidebar { transform: none; }
 .filter output { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
 .filter input:disabled, .filter select:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Swatch legends under a filter: dots for point markers, squares for areas */
-.legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; padding: 0; list-style: none;
+.legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; padding: 0; list-style: none;
   color: var(--muted); font-size: var(--text-sm); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
 .legend .swatch { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
