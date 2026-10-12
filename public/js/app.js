@@ -2,6 +2,7 @@ import { getJson } from './api.js';
 import { createFallbacks } from './fallback.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createFeed } from './ui/feed.js';
+import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
 import { layerModules } from './layers/index.js';
 
@@ -97,6 +98,7 @@ function setLayerVisible(layer, on) {
 }
 
 const summary = createSummary(document.getElementById('summary'), layers, { onToggle: setLayerVisible });
+const liveStatus = createStatus(document.getElementById('status'), document.getElementById('banner'));
 
 // Health changes become feed entries, so a failing feed is visible in the history too.
 const health = new Map();
@@ -142,6 +144,7 @@ function showStatus() {
   shown.forEach(noteHealth);
   for (const s of shown) byId.get(s.id)?.onStatus?.(s);
   summary.update(shown);
+  liveStatus.update(shown);
 }
 
 async function tick() {
@@ -156,6 +159,7 @@ async function tick() {
   } catch {
     lastSources = [];
     summary.setServerDown();
+    liveStatus.setServerDown();
   } finally {
     setTimeout(tick, delay);
   }

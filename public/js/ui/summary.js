@@ -29,7 +29,8 @@ export function createSummary(root, layers, { onToggle }) {
   }
 
   function state(s) {
-    if (serverDown) return 'error';
+    // The banner explains a dead server; chips just show their data is ageing.
+    if (serverDown) return s?.updatedAt ? 'stale' : 'error';
     if (!s || s.loading) return 'loading';
     if (s.error) return 'error';
     // Older than three refresh intervals means something upstream is stuck.
@@ -46,7 +47,7 @@ export function createSummary(root, layers, { onToggle }) {
       c.dot.className = `dot ${st}`;
       c.chip.classList.toggle('error', st === 'error');
       c.count.textContent = s?.updatedAt ? num(layer.count()) : s?.error || serverDown ? '–' : '…';
-      if (serverDown) c.ago.textContent = 'server offline';
+      if (serverDown && !s?.updatedAt) c.ago.textContent = 'offline';
       else if (!s || s.loading) c.ago.textContent = 'loading';
       else if (s.error && !s.updatedAt) c.ago.textContent = 'failed';
       else c.ago.textContent = timeAgo(s.updatedAt, now);
