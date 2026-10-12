@@ -21,13 +21,14 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
 }).addTo(map);
+map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 
 // Sidebar: open by default on wide screens.
 const sidebarToggle = document.getElementById('sidebar-toggle');
 function setSidebar(open) {
   document.body.classList.toggle('sidebar-open', open);
   sidebarToggle.setAttribute('aria-expanded', String(open));
-  setTimeout(() => map.invalidateSize(), 220);
+  setTimeout(() => map.invalidateSize(), 210); // just after the panel's 200ms slide
 }
 setSidebar(window.innerWidth > 760);
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
