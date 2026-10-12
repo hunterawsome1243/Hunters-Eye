@@ -62,6 +62,9 @@ export const IMAGERY = {
 
 export const IMAGERY_SOURCE = 'he-imagery';
 export const IMAGERY_LAYER = 'he-imagery';
+// NASA Blue Marble under the main imagery, so wherever a main tile is slow or
+// never arrives the globe still shows the planet instead of a bare sphere.
+export const IMAGERY_BASE = 'he-imagery-base';
 export const BUILDINGS_LAYER = 'he-buildings-3d';
 
 export function imagerySource(imagery) {
@@ -78,11 +81,11 @@ export function imagerySource(imagery) {
 // Full-strength imagery from space until z9.5, gone by z12, where the vector
 // map's roads, water, parks and labels have taken over. The layer ends at z12
 // whatever the source offers, so no invisible tile is ever requested.
-export function imageryLayer() {
+export function imageryLayer(id = IMAGERY_LAYER) {
   return {
-    id: IMAGERY_LAYER,
+    id,
     type: 'raster',
-    source: IMAGERY_SOURCE,
+    source: id,
     maxzoom: 12,
     paint: {
       'raster-opacity': ['interpolate', ['linear'], ['zoom'], 9.5, 1, 12, 0],
@@ -143,15 +146,21 @@ export function buildStyle(base, { imagery } = {}) {
   style.sky = structuredClone(SKY);
   style.light = structuredClone(LIGHT);
   style.sources = { ...(style.sources ?? {}) };
-  style.layers = (style.layers ?? []).filter((l) => l.id !== IMAGERY_LAYER && l.id !== BUILDINGS_LAYER);
+  style.layers = (style.layers ?? []).filter((l) => ![IMAGERY_LAYER, IMAGERY_BASE, BUILDINGS_LAYER].includes(l.id));
   delete style.sources[IMAGERY_SOURCE];
+  delete style.sources[IMAGERY_BASE];
 
   const background = style.layers.find((l) => l.id === 'background' && l.type === 'background');
   if (background) background.paint = { ...(background.paint ?? {}), 'background-color': SPHERE };
 
   if (imagery?.tiles) {
     style.sources[IMAGERY_SOURCE] = imagerySource(imagery);
-    style.layers.splice(imageryIndex(style.layers), 0, imageryLayer());
+    const at = imageryIndex(style.layers);
+    style.layers.splice(at, 0, imageryLayer());
+    if (imagery.tiles !== IMAGERY.bluemarble.tiles) {
+      style.sources[IMAGERY_BASE] = imagerySource(IMAGERY.bluemarble);
+      style.layers.splice(at, 0, imageryLayer(IMAGERY_BASE));
+    }
   }
 
   if (style.sources.openmaptiles && !style.layers.some((l) => l.type === 'fill-extrusion')) {

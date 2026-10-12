@@ -30,7 +30,7 @@ const ids = (style) => style.layers.map((l) => l.id);
 test('imagery goes above the opening run of fills and below the first line', () => {
   const style = buildStyle(dark(), { imagery: IMAGERY.eox2017 });
   const order = ids(style);
-  assert.equal(order[order.indexOf('he-imagery') - 1], 'landuse_park');
+  assert.equal(order[order.indexOf('he-imagery-base') - 1], 'landuse_park');
   assert.equal(order[order.indexOf('he-imagery') + 1], 'waterway');
   assert.equal(style.sources['he-imagery'].tiles[0], IMAGERY.eox2017.tiles);
   assert.equal(style.sources['he-imagery'].maxzoom, 12);
@@ -38,6 +38,9 @@ test('imagery goes above the opening run of fills and below the first line', () 
   assert.equal(deep.sources['he-imagery'].maxzoom, 18);
   assert.equal(deep.layers.find((l) => l.id === 'he-imagery').maxzoom, 12);
   assert.equal(style.layers.find((l) => l.id === 'he-imagery').source, 'he-imagery');
+  // NASA Blue Marble sits right under the main imagery to fill any tile that never arrives.
+  assert.equal(order[order.indexOf('he-imagery') - 1], 'he-imagery-base');
+  assert.equal(style.sources['he-imagery-base'].tiles[0], IMAGERY.bluemarble.tiles);
 });
 
 test('imagery falls back to after water, then to index 1', () => {
