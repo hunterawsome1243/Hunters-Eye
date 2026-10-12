@@ -276,15 +276,21 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
   // A short pulse where a selected point sits (style.css .ripple), so a feed click
   // shows where it landed. latlng is [lat, lon]; radius is the marker's, so the
   // ring starts just outside it. An arrival pulses a third time.
+  // A selection flies the camera there right after this call, so the pulse waits
+  // for the flight to land: on a globe the point is often on the far side until
+  // then. A point that is still behind the globe is not drawn at all.
   function ripple([lat, lon], color, radius = 8, { arrive = false } = {}) {
-    const element = document.createElement('div');
-    element.className = arrive ? 'ripple arrive' : 'ripple';
-    element.style.setProperty('--size', `${Math.round(radius * 2 + 8)}px`);
-    const ring = document.createElement('i');
-    ring.style.setProperty('--c', color);
-    element.append(ring);
-    const marker = new maplibregl.Marker({ element }).setLngLat([lon, lat]).addTo(map);
-    setTimeout(() => marker.remove(), arrive ? 2200 : 1500);
+    const show = () => {
+      const element = document.createElement('div');
+      element.className = arrive ? 'ripple arrive' : 'ripple';
+      element.style.setProperty('--size', `${Math.round(radius * 2 + 8)}px`);
+      const ring = document.createElement('i');
+      ring.style.setProperty('--c', color);
+      element.append(ring);
+      const marker = new maplibregl.Marker({ element, opacityWhenCovered: '0' }).setLngLat([lon, lat]).addTo(map);
+      setTimeout(() => marker.remove(), arrive ? 2200 : 1500);
+    };
+    setTimeout(() => (map.isMoving() && !spin.spinning ? map.once('moveend', show) : show()));
   }
 }
 
