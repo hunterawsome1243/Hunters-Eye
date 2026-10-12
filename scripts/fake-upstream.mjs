@@ -124,6 +124,11 @@ export const routes = {
 
 export function startFakeUpstream(port = 0) {
   const server = http.createServer((req, res) => {
+    // Like the real CelesTrak, answer cross-origin requests from the browser
+    // fallback, except under /nocors/, which stands in for a site that doesn't.
+    const cors = !req.url.startsWith('/nocors/');
+    if (!cors) req.url = req.url.slice('/nocors'.length);
+    const headers = (type) => ({ 'Content-Type': type, ...(cors ? { 'Access-Control-Allow-Origin': '*' } : {}) });
     const path = new URL(req.url, 'http://x').pathname;
     const key = Object.keys(routes).find((k) => path === k || path.startsWith(`${k}/`));
     const handler = routes[key];
@@ -133,11 +138,11 @@ export function startFakeUpstream(port = 0) {
     }
     let body = handler(req);
     if (body && body.status) {
-      res.writeHead(body.status, { 'Content-Type': 'text/plain' }).end(body.body);
+      res.writeHead(body.status, headers('text/plain')).end(body.body);
       return;
     }
     const isText = typeof body === 'string';
-    res.writeHead(200, { 'Content-Type': isText ? 'text/plain' : 'application/json' });
+    res.writeHead(200, headers(isText ? 'text/plain' : 'application/json'));
     res.end(isText ? body : JSON.stringify(body));
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));

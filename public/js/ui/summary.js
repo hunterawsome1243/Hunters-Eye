@@ -50,6 +50,8 @@ export function createSummary(root, layers, { onToggle }) {
       else if (!s || s.loading) c.ago.textContent = 'loading';
       else if (s.error && !s.updatedAt) c.ago.textContent = 'failed';
       else c.ago.textContent = timeAgo(s.updatedAt, now);
+      // The browser is fetching this source itself because the server can't (fallback.js).
+      if (s?.via === 'browser' && !serverDown) c.ago.textContent += ' · via browser';
 
       const lines = [`${layer.name} (${layer.source})`];
       if (serverDown) lines.push('Cannot reach the local server.');

@@ -3,3 +3,5 @@ node_modules/
 data/cache/
 *.log
 docs/screenshot-fake.png
+docs/screenshot-server-blocked.png
+docs/screenshot-browser-blocked.png

@@ -2,40 +2,18 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HttpError, getText } from '../lib/http.js';
+import { GROUPS, MAX_AGE_MS, NOTABLE, groupUrl, mergeGroups, parseTle } from '../../shared/celestrak.js';
 
 // CelesTrak GP element sets (TLE format). The browser propagates positions itself
 // with satellite.js, so the server only needs fresh elements now and then.
-// Docs: https://celestrak.org/NORAD/documentation/gp-data-formats.php
-// CelesTrak updates GP data about every 2 hours and, since March 2026, answers a
-// repeat download before the next update with HTTP 403. So each group is cached
-// on disk and re-downloaded only when it is over 2 hours old, also across restarts.
+// CelesTrak answers a repeat download before its next 2-hourly update with HTTP 403,
+// so each group is cached on disk and re-downloaded only when it is over 2 hours
+// old, also across restarts. Parsing lives in shared/celestrak.js, which the
+// browser fallback uses too.
 const BASE = process.env.CELESTRAK_URL || 'https://celestrak.org/NORAD/elements/gp.php';
 const CACHE_DIR = process.env.CACHE_DIR ?? fileURLToPath(new URL('../../data/cache', import.meta.url));
-const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
-// Space stations (ISS, Tiangong and visiting craft) plus the ~150 brightest objects.
-export const GROUPS = ['STATIONS', 'VISUAL'];
-
-export const NOTABLE = {
-  25544: 'ISS',
-  48274: 'Tiangong',
-  20580: 'Hubble',
-  27386: 'Envisat',
-  33591: 'NOAA 19',
-};
-
-export function parseTle(text, group) {
-  const lines = text.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
-  const sats = [];
-  for (let i = 0; i + 2 < lines.length; i++) {
-    const [name, l1, l2] = [lines[i], lines[i + 1], lines[i + 2]];
-    if (!l1?.startsWith('1 ') || !l2?.startsWith('2 ')) continue;
-    const id = l1.slice(2, 7).trim();
-    sats.push({ id, name: name.replace(/^0 /, '').trim(), line1: l1, line2: l2, group, notable: NOTABLE[id] ?? null });
-    i += 2;
-  }
-  return sats;
-}
+export { GROUPS, NOTABLE, parseTle };
 
 // group -> { text, downloadedAt }. Mirrors the disk cache and stands in for it
 // when CACHE_DIR is empty or not writable.
@@ -76,7 +54,7 @@ async function loadGroup(group) {
   if (cached && Date.now() - lastAsked(group, cached) < MAX_AGE_MS) return cached;
   let text;
   try {
-    text = await getText(`${BASE}?GROUP=${group}&FORMAT=TLE`, { timeoutMs: 30_000 });
+    text = await getText(groupUrl(BASE, group), { timeoutMs: 30_000 });
     if (!parseTle(text, group).length) throw new Error(`CelesTrak returned no element sets for ${group}`);
   } catch (err) {
     // A 403 usually means "no newer data since your last download"; other errors
@@ -95,6 +73,8 @@ export default {
   name: 'Satellites',
   intervalMs: MAX_AGE_MS,
   errorRetryMs: 30 * 60 * 1000, // CelesTrak blocks IPs that rack up errors; back off hard
+  // If this server can't reach CelesTrak, browsers fetch from here themselves (public/js/fallback.js).
+  browserUrl: process.env.CELESTRAK_BROWSER_URL || BASE,
   async fetch() {
     const results = [];
     const errors = [];
@@ -107,9 +87,7 @@ export default {
     }
     if (!results.length) throw new Error(errors.join('; '));
 
-    const byId = new Map();
-    for (const r of results) for (const s of parseTle(r.text, r.group)) if (!byId.has(s.id)) byId.set(s.id, s);
-    const satellites = [...byId.values()];
+    const satellites = mergeGroups(results);
     // Report when the elements were really downloaded, so old data shows as stale.
     const oldest = Math.min(...results.map((r) => r.downloadedAt));
     const ageH = (Date.now() - oldest) / 3_600_000;

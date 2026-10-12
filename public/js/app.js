@@ -1,4 +1,5 @@
 import { getJson } from './api.js';
+import { createFallbacks } from './fallback.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createFeed } from './ui/feed.js';
 import { createSummary } from './ui/summary.js';
@@ -10,18 +11,27 @@ const map = L.map('map', {
   center: [25, -20],
   zoom: 3,
   minZoom: 2,
+  maxZoom: 19,
   worldCopyJump: true,
   zoomControl: false,
   preferCanvas: true,
 });
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  subdomains: 'abcd',
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-}).addTo(map);
-map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
+map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>'); // no flag: it has to fit a phone
+
+// The map underneath the layers: a vector style (OpenFreeMap's dark one by default,
+// set by the server in /api/config) drawn by MapLibre inside Leaflet. It loads on
+// its own, so a basemap problem never stops the data layers. Its credit line comes
+// from the style's own sources.
+async function addBasemap(style) {
+  try {
+    const { maplibreGL } = await import('/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.mjs');
+    maplibreGL({ style }).addTo(map);
+  } catch (err) {
+    console.warn('Basemap unavailable:', err.message);
+  }
+}
 
 // Sidebar: open by default on wide screens.
 const sidebarToggle = document.getElementById('sidebar-toggle');
@@ -120,17 +130,31 @@ async function loadSource(s) {
   }
 }
 
+// Fills in for sources the server can't reach (see fallback.js). Created once
+// /api/config has said which sources may fall back, and to where.
+let fallbacks = createFallbacks();
+let lastSources = [];
+
+// Health, chips and layer hints follow what the map shows: the server's data, or
+// the browser's own while it stands in for a failing source.
+function showStatus() {
+  const shown = lastSources.map((s) => fallbacks.status(s));
+  shown.forEach(noteHealth);
+  for (const s of shown) byId.get(s.id)?.onStatus?.(s);
+  summary.update(shown);
+}
+
 async function tick() {
   let delay = STATUS_POLL_MS;
   try {
     const { sources, serverTime } = await getJson('/api/status');
     clockOffset = serverTime - Date.now();
     if (sources.some((s) => s.loading)) delay = 1000; // first load: pick data up as soon as it lands
-    sources.forEach(noteHealth);
-    for (const s of sources) byId.get(s.id)?.onStatus?.(s);
+    lastSources = sources;
     await Promise.all(sources.map(loadSource));
-    summary.update(sources);
+    showStatus();
   } catch {
+    lastSources = [];
     summary.setServerDown();
   } finally {
     setTimeout(tick, delay);
@@ -145,4 +169,15 @@ map.on('click', (e) => {
 
 // Small handle for scripts/smoke.mjs and for poking around in the console.
 window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
-tick();
+
+getJson('/api/config')
+  .then(({ basemap, fallback }) => {
+    if (basemap) addBasemap(basemap);
+    fallbacks = createFallbacks(fallback, {
+      onData: (id, data) => byId.get(id)?.update(data),
+      onChange: () => lastSources.length && showStatus(),
+      options: (id) => byId.get(id)?.fetchOptions?.() ?? {},
+    });
+  })
+  .catch((err) => console.warn('No browser fallback:', err.message))
+  .finally(tick);

@@ -2,9 +2,11 @@ import './lib/env.js';
 import { createApp } from './app.js';
 import { sources } from './sources/index.js';
 
-const port = Number(process.env.PORT) || 3000;
+// Render (and similar hosts) route public traffic to 0.0.0.0 on $PORT, default 10000.
+const onRender = process.env.RENDER === 'true';
+const port = Number(process.env.PORT) || (onRender ? 10000 : 3000);
 // Local only by default; set HOST=0.0.0.0 to reach it from other devices on your network.
-const host = process.env.HOST || '127.0.0.1';
+const host = process.env.HOST || (onRender ? '0.0.0.0' : '127.0.0.1');
 const { app, pollers } = createApp(sources);
 
 const server = app.listen(port, host, () => {
