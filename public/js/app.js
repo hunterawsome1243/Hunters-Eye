@@ -11,17 +11,26 @@ const map = L.map('map', {
   center: [25, -20],
   zoom: 3,
   minZoom: 2,
+  maxZoom: 19,
   worldCopyJump: true,
   zoomControl: false,
   preferCanvas: true,
 });
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  subdomains: 'abcd',
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-}).addTo(map);
+
+// The map underneath the layers: a vector style (OpenFreeMap's dark one by default,
+// set by the server in /api/config) drawn by MapLibre inside Leaflet. It loads on
+// its own, so a basemap problem never stops the data layers. Its credit line comes
+// from the style's own sources.
+async function addBasemap(style) {
+  try {
+    const { maplibreGL } = await import('/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.mjs');
+    maplibreGL({ style }).addTo(map);
+  } catch (err) {
+    console.warn('Basemap unavailable:', err.message);
+  }
+}
 
 // Sidebar: open by default on wide screens.
 const sidebarToggle = document.getElementById('sidebar-toggle');
@@ -161,7 +170,8 @@ map.on('click', (e) => {
 window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
 
 getJson('/api/config')
-  .then(({ fallback }) => {
+  .then(({ basemap, fallback }) => {
+    if (basemap) addBasemap(basemap);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => lastSources.length && showStatus(),

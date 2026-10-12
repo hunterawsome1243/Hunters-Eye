@@ -42,7 +42,7 @@ browser ──/api/status every 5 s──▶  Node server (Express)  ──on ea
 
 - The **server** (`server/`) polls each upstream API on a fixed schedule and keeps the latest result in memory. Browsers only ever read from that cache, so opening ten tabs does not make ten times the upstream calls, and there are no cross-origin problems. When no browser has asked for anything in 10 minutes, polling pauses, so an idle server uses none of your rate-limit budget. Waking up still respects the previous interval.
 - The **browser** (`public/`) polls `/api/status` every 5 seconds. That small response carries every source's health, count and version; the browser downloads a source's data only when its version changes.
-- Leaflet, satellite.js and the app's own modules are served by the local server, so normally the only third-party requests the page makes are the map tiles.
+- Leaflet, MapLibre, satellite.js and the app's own modules are served by the local server, so normally the only third-party requests the page makes are for the basemap.
 
 ### Browser fallback
 
@@ -65,9 +65,9 @@ All four are free and need no paid plan. Limits below were checked against each 
 | [OpenSky Network](https://openskynetwork.github.io/opensky-api/rest.html) | `/api/states/all?extended=1` | Anonymous: 400 credits/day. Free account API client: 4,000/day. A request costs 1 credit (box up to 25 sq°), 2 (up to 100), 3 (up to 400) or 4 (larger or global). HTTP 429 when credits run out. Basic auth with username/password no longer works; API clients use OAuth2 client credentials. | After each request the server waits *cost × 24 h ÷ daily credits*, plus 15%. Global view: every ~17 min anonymous, ~1.5 min with an API client. With "only aircraft in current view" the server queries a padded box around your view, which costs fewer credits and so refreshes faster (down to ~4 min anonymous, ~25 s with a client). Honors `X-Rate-Limit-Retry-After-Seconds` on 429. |
 | [CelesTrak](https://celestrak.org/NORAD/documentation/gp-data-formats.php) | `gp.php?GROUP=STATIONS&FORMAT=TLE` and `GROUP=VISUAL` | Data updates about every 2 hours. Since March 2026 a repeat download before the next update gets HTTP 403. More than 50 errors (301/403/404) in 2 hours gets your IP firewalled. | Each group is cached on disk (`data/cache/`) and downloaded at most once every 2 hours, including across restarts. A 403 keeps the cached data. After any error the server waits 30 minutes. Positions are computed in the browser every second, so no further requests are needed. |
 | [National Weather Service](https://www.weather.gov/documentation/services-web-api) | `/alerts/active?status=actual`, plus `/zones/{type}/{id}` | Requires a `User-Agent`. Limits are not published but described as generous; errors clear within about 5 seconds. | Alerts every 2 minutes. Zone- and county-based alerts arrive without a shape, so their outlines come from the zones endpoint, as the [NWS geolocation guide](https://www.weather.gov/media/documentation/docs/NWS_Geolocation.pdf) recommends. Each zone is downloaded once, simplified and cached on disk; at most 300 per cycle, 4 at a time, most severe alerts first. |
-| [CARTO basemaps](https://github.com/CartoDB/basemap-styles) | Dark Matter tiles | Free with attribution for non-commercial use, within CARTO's fair-use limits. | Loaded directly by the browser. |
+| [OpenFreeMap](https://openfreemap.org/) | `tiles.openfreemap.org/styles/dark` (vector tiles from OpenStreetMap data) | Free, including commercial use. No API key, no sign-up, no stated request limits; runs on donations. | Loaded directly by the browser and drawn with MapLibre GL inside Leaflet. Credit line shown on the map. |
 
-No source had to be swapped for an alternative.
+**One source was swapped: the basemap.** The app first used CARTO's free Dark Matter tiles, but in 2026 CARTO began requiring an API key and now stamps "API key required" across maps without one. OpenFreeMap's dark style replaced it because it needs no key. To use another MapLibre style, set `BASEMAP_STYLE`.
 
 ## Configuration
 
@@ -81,6 +81,7 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 | `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | empty | A free OpenSky API client (sign in at opensky-network.org, Account page, create an API client). Raises aircraft credits from 400 to 4,000 a day. |
 | `EARTHQUAKES_INTERVAL_SEC`, `AIRCRAFT_INTERVAL_SEC`, `WEATHER_INTERVAL_SEC` | safe defaults | Override a refresh interval. The aircraft override skips the credit budgeting, so you can run out of credits. |
 | `CACHE_DIR` | `data/cache` | Where satellite elements and weather zone outlines are cached. Empty means memory only. |
+| `BASEMAP_STYLE` | OpenFreeMap dark | URL of the MapLibre style drawn under the layers, such as another OpenFreeMap style or your own tile server. |
 | `BROWSER_FALLBACK` | on | `off` stops browsers from fetching OpenSky and CelesTrak themselves when the server can't reach them. See [Browser fallback](#browser-fallback). |
 
 `.env` is in `.gitignore`; never commit real credentials.

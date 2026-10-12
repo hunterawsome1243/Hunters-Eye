@@ -67,9 +67,9 @@ const expectedError = (m) => browserBlocked && (m.text().includes('/nocors/') ||
 page.on('console', (m) => m.type() === 'error' && !expectedError(m) && consoleErrors.push(m.text()));
 page.on('pageerror', (e) => consoleErrors.push(e.message));
 if (fake) {
-  // Map tiles come from the internet; serve blank ones so the run is fully offline.
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
-  await page.route(/basemaps\.cartocdn\.com/, (r) => r.fulfill({ body: png, contentType: 'image/png' }));
+  // The basemap comes from the internet; serve a plain dark style so the run is fully offline.
+  const style = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0c0c0c' } }] };
+  await page.route(/tiles\.openfreemap\.org/, (r) => r.fulfill({ json: style }));
 }
 
 const results = [];
@@ -109,6 +109,12 @@ try {
     }
   }
   check('layers present', layerIds.length === status.sources.length, layerIds.join(', '));
+  const basemap = await page.evaluate(() => {
+    const layer = Object.values(window.__huntersEye.map._layers).find((l) => l.getMaplibreMap);
+    const gl = layer?.getMaplibreMap();
+    return gl ? { loaded: gl.isStyleLoaded() !== false, canvas: !!gl.getCanvas() } : null;
+  });
+  check('basemap drawn by MapLibre', !!basemap?.canvas && basemap.loaded, JSON.stringify(basemap));
 
   const feedItems = await page.locator('#feed button').count();
   check('live feed has entries', feedItems > 0, `${feedItems} entries`);
