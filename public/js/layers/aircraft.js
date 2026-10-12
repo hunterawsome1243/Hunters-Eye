@@ -218,11 +218,15 @@ export default function create(ctx) {
     const f = data.fields;
     aircraft = data.states.map((row) => Object.fromEntries(f.map((k, i) => [k, row[i]])));
     byIcao = new Map(aircraft.map((a) => [a.icao24, a]));
+    api.urgent = aircraft.some((a) => EMERGENCY[a.squawk]);
     for (const a of aircraft) {
       if (!EMERGENCY[a.squawk]) continue;
       feed.add({
         id: `aircraft:${a.icao24}:${a.squawk}`,
         source: 'aircraft',
+        significant: true,
+        latlng: [a.lat, a.lon],
+        radius: 6,
         time: (a.lastContact ?? data.time / 1000) * 1000,
         color: '#f87171',
         title: `${a.callsign || a.icao24.toUpperCase()} squawking ${a.squawk}`,

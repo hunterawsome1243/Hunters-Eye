@@ -81,6 +81,7 @@ export default function create(ctx) {
   }
 
   function update({ alerts, zones }) {
+    api.urgent = alerts.some((a) => a.severity === 'Extreme');
     const seen = new Set(alerts.map((a) => a.id));
     for (const [id, s] of shapes) {
       if (seen.has(id)) continue;
@@ -117,6 +118,9 @@ export default function create(ctx) {
           source: 'weather',
           time: a.sent ?? Date.now(),
           severity: a.severity,
+          significant: a.severity === 'Extreme' || a.severity === 'Severe',
+          latlng: entry.layer?.getBounds?.().getCenter() ?? null,
+          radius: 10,
           color: (SEVERITY[a.severity] || SEVERITY.Unknown).color,
           title: a.event,
           subtitle: a.areaDesc,

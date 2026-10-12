@@ -5,6 +5,7 @@ import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
 import { layerModules } from './layers/index.js';
+import { nearLon } from './ui/format.js';
 
 const STATUS_POLL_MS = 5000;
 
@@ -119,6 +120,9 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
   },
   // Aircraft feed ids carry the squawk after the icao ("aircraft:abc123:7700").
   isCurrent: (entry) => !!detail.key && (entry.id === detail.key || entry.id.startsWith(`${detail.key}:`)),
+  // Ambient: the newest significant event (a strong quake, an Extreme or Severe alert,
+  // an emergency squawk) ripples where it landed as its row arrives.
+  onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
 });
 const detail = createDetailPanel(document.getElementById('detail'), {
   onShow: ({ latlng, color, radius }) => {
@@ -134,15 +138,16 @@ const filtersEl = document.getElementById('filters');
 
 // A short pulse on the map where the selected point sits, so a feed click shows
 // where it landed (alert areas highlight their outline instead). radius is the
-// marker's, so the ring starts just outside it.
-function ripple(latlng, color, radius = 8) {
+// marker's, so the ring starts just outside it. An arrival pulses a third time.
+function ripple(latlng, color, radius = 8, { arrive = false } = {}) {
+  const { lat, lng } = L.latLng(latlng);
   const size = Math.round(radius * 2 + 8);
-  const marker = L.marker(latlng, {
-    icon: L.divIcon({ className: 'ripple', html: `<i style="--c:${color}"></i>`, iconSize: [size, size] }),
+  const marker = L.marker([lat, nearLon(lng, map.getCenter().lng)], {
+    icon: L.divIcon({ className: arrive ? 'ripple arrive' : 'ripple', html: `<i style="--c:${color}"></i>`, iconSize: [size, size] }),
     interactive: false,
     keyboard: false,
   }).addTo(map);
-  setTimeout(() => map.removeLayer(marker), 1500);
+  setTimeout(() => map.removeLayer(marker), arrive ? 2200 : 1500);
 }
 
 let clockOffset = 0; // server clock minus browser clock, from /api/status
@@ -183,6 +188,7 @@ function setLayerVisible(layer, on) {
   }
   feed.refresh();
   summary.render();
+  showAlertTint();
 }
 
 const summary = createSummary(document.getElementById('summary'), layers, { onToggle: setLayerVisible });
@@ -237,6 +243,13 @@ function showStatus() {
   const d = liveStatus.update(shown, { serverDown });
   document.getElementById('connecting').classList.toggle('show', !!d.connecting);
   feed.setLoading(!!d.connecting || shown.some((s) => s.loading)); // until every feed has answered once
+  showAlertTint();
+}
+
+// Ambient: the top bar's edge carries an alert tint while an Extreme alert or an
+// emergency squawk is live on a layer that is showing.
+function showAlertTint() {
+  document.body.classList.toggle('alert-live', layers.some((l) => l.urgent && map.hasLayer(l.layer)));
 }
 
 async function tick() {

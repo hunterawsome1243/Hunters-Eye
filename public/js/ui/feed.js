@@ -19,7 +19,8 @@ const ICONS = {
 // revised one glows, and the row under the reader's eye stays put while rows land above.
 // "New" is a property of the entry (when it was added), not of the row: rows re-shown
 // after a layer toggle, or a source that lands late in the first load, stay quiet.
-export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false } = {}) {
+// onArrive(entry) fires for the newest significant entry that lands after the first load.
+export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false, onArrive = () => {} } = {}) {
   const entries = new Map();
   const nodes = new Map(); // id -> { li, button, time, entry }
   let renderQueued = false;
@@ -73,7 +74,10 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     const top = listEl.scrollTop;
     const anchor = top > 0 ? [...listEl.children].find((li) => li.offsetTop + li.offsetHeight > top) : null;
     const anchorTop = anchor?.offsetTop;
-    const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
+    // An entry animates once, when it first lands after the first load (not again when
+    // a layer toggle or a filter brings its row back).
+    const fresh = (t, e) => settledAt !== null && t > settledAt + SETTLE_MS && !e.animated;
+    let arrived = null;
 
     const lis = shown.map((e) => {
       let n = nodes.get(e.id);
@@ -81,11 +85,18 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         n = { li: el('li', { class: e.system ? 'system' : null }) };
         fill(n, e, now);
         nodes.set(e.id, n);
-        if (fresh(e.addedAt)) n.li.classList.add('new');
+        if (fresh(e.addedAt, e)) {
+          n.li.classList.add('new');
+          e.animated = true;
+          if (e.significant) arrived ??= e; // shown is newest first
+        }
       } else if (n.entry !== e) {
         fill(n, e, now); // replaced (an earthquake's magnitude was revised)
         n.li.classList.remove('new');
-        if (fresh(e.replacedAt)) n.li.classList.add('updated');
+        if (fresh(e.replacedAt, e)) {
+          n.li.classList.add('updated');
+          e.animated = true;
+        }
       } else {
         n.time.textContent = timeAgo(e.time, now);
       }
@@ -111,6 +122,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       revealQueued = false;
       listEl.querySelector('[aria-current]')?.scrollIntoView({ block: 'nearest' });
     }
+    if (arrived) onArrive(arrived);
   }
 
   // Let a row animate again the next time it changes. A new row runs its slide and
