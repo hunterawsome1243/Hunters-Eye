@@ -87,9 +87,10 @@ export function createSpin(map, { phone = false, isBlocked = () => false } = {})
 
   return {
     step,
+    // Cancels the next step and the spin's own move, never someone else's flight.
     pause() {
       clearTimeout(timer);
-      map.stop();
+      if (spinning) map.stop();
     },
     resume() {
       if (map.isMoving()) map.once('moveend', step);

@@ -176,7 +176,10 @@ try {
   await page.keyboard.press('Escape');
 
   // The magnitude slider filters on the GPU, so no quake circle may remain at 7+.
+  // (Whole-viewport queries miss points on the globe below z3, so look from z4.)
   if (hasData('earthquakes')) {
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [142, 38], zoom: 4 }));
+    await idle();
     const slider = page.locator('.filter input[type="range"]').first();
     await slider.fill('7');
     await idle();
@@ -184,7 +187,7 @@ try {
     await slider.fill('2.5');
     await idle();
     const back = await evalMap(() => window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-earthquakes'] }).length);
-    check('Earthquakes: magnitude filter hides circles', left === 0 && back >= 0, `${left} at 7+, ${back} at 2.5+`);
+    check('Earthquakes: magnitude filter hides circles', left === 0 && back > 0, `${left} at 7+, ${back} at 2.5+`);
   }
 
   // A real click on the canvas: focus a plane (it ends up mid-map), close the
@@ -203,8 +206,10 @@ try {
       clusters: window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-aircraft-cluster'] }).length,
       planes: window.__huntersEye.map.queryRenderedFeatures({ layers: ['he-aircraft'] }).length,
     }));
+    // Lone planes with no neighbour within 36 px stay single icons, so from space
+    // most of what shows must be bubbles; up close there are no bubbles at all.
     check('Aircraft: clustered from space, individual planes up close',
-      far.clusters > 0 && far.planes <= Math.max(2, far.clusters * 0.02) && near.clusters === 0 && near.planes > 0,
+      far.clusters > 0 && far.planes <= far.clusters && near.clusters === 0 && near.planes > 0,
       `z2 ${JSON.stringify(far)}, z7 ${JSON.stringify(near)}`);
 
     // A real click on the canvas: focus a plane (it ends up mid-map), close the
