@@ -17,21 +17,34 @@
     </button>
     <h1 class="brand"><span class="brand-mark" aria-hidden="true"></span>Hunter's Eye</h1>
     <div id="summary" class="summary" role="group" aria-label="Data layers"></div>
+    <div id="status" class="status loading" role="group" aria-label="Data status"></div>
   </header>
 
   <main class="layout">
-    <aside id="sidebar" class="sidebar">
-      <section class="panel-section">
-        <h2>Filters</h2>
-        <div id="filters" class="filters"></div>
-      </section>
+    <div id="banner" class="banner" role="alert"></div>
+    <div id="scrim" class="scrim no-anim" aria-hidden="true"></div>
+    <aside id="sidebar" class="sidebar no-anim">
       <section class="panel-section feed-section">
         <h2>Live feed <span id="feed-count" class="muted"></span></h2>
         <ol id="feed" class="feed" aria-live="polite"></ol>
       </section>
+      <section class="panel-section filters-section no-anim">
+        <h2>
+          <button id="filters-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="filters-panel">
+            Filters
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </h2>
+        <div id="filters-panel" class="collapse">
+          <div class="collapse-body">
+            <div id="filters" class="filters"></div>
+          </div>
+        </div>
+      </section>
     </aside>
 
-    <div id="map" class="map" aria-label="World map"></div>
+    <div id="map" class="map no-anim" aria-label="World map"></div>
+    <div id="connecting" class="connecting show" aria-hidden="true"><span class="dot loading"></span>Connecting to feeds…</div>
 
     <section id="detail" class="detail" hidden aria-live="polite">
       <header class="detail-head">

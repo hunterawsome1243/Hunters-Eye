@@ -1,14 +1,19 @@
 import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 
 const HOUR = 3_600_000;
+// Colour and fill opacity by age: at marker size the fill carries the ramp, so a
+// fresh quake is a solid amber disc and an old one a faint ring.
 const AGE_COLORS = [
-  [HOUR, '#ff4d4d', 'past hour'],
-  [6 * HOUR, '#ff9f1c', 'past 6 hours'],
-  [24 * HOUR, '#ffd93d', 'past day'],
-  [Infinity, '#8a94a3', 'older'],
+  [HOUR, '#ffcc4d', 'past hour', 0.8],
+  [6 * HOUR, '#f5a524', 'past 6 hours', 0.55],
+  [24 * HOUR, '#c47f1f', 'past day', 0.35],
+  [Infinity, '#8a7a66', 'older', 0.3],
 ];
 
-export const ageColor = (time, now = Date.now()) => AGE_COLORS.find(([max]) => now - time < max)[1];
+const ageStep = (time, now = Date.now()) => AGE_COLORS.find(([max]) => now - time < max);
+export const ageColor = (time, now = Date.now()) => ageStep(time, now)[1];
+export const ageFillOpacity = (time, now = Date.now()) => ageStep(time, now)[3];
 export const radiusFor = (mag) => 2.5 + Math.max(0, mag ?? 0) ** 2 * 0.5;
 
 export default function create(ctx) {
@@ -22,8 +27,8 @@ export default function create(ctx) {
   const output = el('output', {}, minMag.toFixed(1));
   const slider = el('input', { type: 'range', min: '-1', max: '7', step: '0.5', value: String(minMag), 'aria-label': 'Minimum earthquake magnitude' });
   filter.append(el('label', {}, 'Min. earthquake magnitude', output), slider,
-    el('div', { class: 'hint' }, 'Circle size = magnitude, color = age: ',
-      ...AGE_COLORS.flatMap(([, c, label], i) => [i ? ', ' : '', el('span', { style: `color:${c}` }, label)])));
+    el('div', { class: 'hint' }, 'Size is magnitude, color is age.'),
+    legend(AGE_COLORS.map(([, c, label]) => [c, label]), { label: 'Earthquake age colors' }));
   slider.addEventListener('input', () => {
     minMag = Number(slider.value);
     output.textContent = minMag.toFixed(1);
@@ -49,7 +54,7 @@ export default function create(ctx) {
       color: isSelected ? '#ffffff' : color,
       weight: isSelected ? 2.5 : 1,
       fillColor: color,
-      fillOpacity: 0.35,
+      fillOpacity: ageFillOpacity(q.time),
       opacity: 0.9,
     };
   }
@@ -63,7 +68,7 @@ export default function create(ctx) {
       fields: [
         ['Magnitude', `${num(q.mag, 1)} ${q.magType || ''}`.trim()],
         ['Depth', q.depth != null ? `${num(q.depth, 1)} km` : null],
-        ['Time', `${dateTime(q.time)} (${timeAgo(q.time)})`],
+        ['Time', dateTime(q.time), timeAgo(q.time)],
         ['Location', latLon(q.lat, q.lon)],
         ['Status', q.status],
         ['Felt reports', q.felt || null],
@@ -71,6 +76,8 @@ export default function create(ctx) {
         ['Tsunami flag', q.tsunami ? 'Yes' : null],
       ],
       link: q.url ? { href: q.url, label: 'Open on USGS ↗' } : null,
+      latlng: [q.lat, nearLon(q.lon, map.getCenter().lng)],
+      radius: radiusFor(q.mag),
     });
   }
 
@@ -115,6 +122,9 @@ export default function create(ctx) {
           source: 'earthquakes',
           time: q.time,
           mag: q.mag,
+          significant: q.mag >= 6,
+          latlng: [q.lat, q.lon],
+          radius: radiusFor(q.mag),
           color: ageColor(q.time),
           title: `M ${num(q.mag, 1)} earthquake`,
           subtitle: `${q.place || latLon(q.lat, q.lon)} · ${num(q.depth, 0)} km deep`,
@@ -150,7 +160,7 @@ export default function create(ctx) {
     id: 'earthquakes',
     name: 'Earthquakes',
     source: 'USGS',
-    color: '#ff9f1c',
+    color: '#f5a524',
     layer: group,
     visible: true,
     update,

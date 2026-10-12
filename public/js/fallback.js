@@ -197,6 +197,7 @@ class Runner {
     this.generation = 0;
     this.timer = null;
     this.serverError = null;
+    this.waiting = false; // holding off for a budget slot (not fetching, not failed)
     this.state = { error: null, note: null, count: 0, updatedAt: null, nextAt: null };
   }
 
@@ -225,7 +226,15 @@ class Runner {
   async run() {
     const gen = this.generation;
     const defer = this.impl.deferMs?.(!!this.state.updatedAt) ?? 0;
-    if (defer > 0) return this.schedule(defer);
+    if (defer > 0) {
+      this.schedule(defer);
+      if (!this.waiting) {
+        this.waiting = true;
+        this.onChange(); // a budget wait, not a fetch: the page needn't wait for it
+      }
+      return;
+    }
+    this.waiting = false;
     let delay;
     try {
       const r = await this.impl.fetch();
@@ -251,6 +260,7 @@ class Runner {
       ...server,
       ok: !st.error && !!st.updatedAt,
       loading: !st.error && !st.updatedAt,
+      waiting: this.waiting && !st.error && !st.updatedAt, // only a budget slot is outstanding
       error: st.error ? `The server can't reach ${this.provider}, and your browser's request failed too: ${st.error}` : null,
       note: [st.note, `Loaded by your browser because ${why}.`].filter(Boolean).join(' '),
       count: st.count,

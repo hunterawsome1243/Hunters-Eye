@@ -1,7 +1,8 @@
 import { putJson } from '../api.js';
-import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
+import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 
-const COLOR = '#38bdf8';
+const COLOR = '#22d3ee';
 const MAX_EXTRAPOLATE_S = 300;
 const HIT_RADIUS = 10;
 const EMERGENCY = { '7500': 'Hijack (7500)', '7600': 'Radio failure (7600)', '7700': 'General emergency (7700)' };
@@ -12,13 +13,21 @@ const CATEGORY = ['No info', 'No ADS-B category', 'Light', 'Small', 'Large', 'Hi
 // Plane silhouette pointing north, centred on 0,0, about 14px long.
 const PLANE = new Path2D('M0 -7 L1.3 -2.2 L7 1.2 L7 2.4 L1.2 0.9 L0.9 4.6 L2.6 6 L2.6 7 L0 6.2 L-2.6 7 L-2.6 6 L-0.9 4.6 L-1.2 0.9 L-7 2.4 L-7 1.2 L-1.3 -2.2 Z');
 
+// Plane colour by altitude (metres), ground first; also the legend under the filter.
+// A cyan family (the UI's own accent is sky, so chrome never reads as a plane) with
+// lightness steps wide enough to tell apart on a 10px glyph.
+const GROUND_COLOR = '#6b7280';
+const ALTITUDE_BANDS = [
+  [0, GROUND_COLOR, 'on ground'],
+  [3000, '#0e7490', 'below 3 km'],
+  [7000, '#06b6d4', '3–7 km'],
+  [10000, '#67e8f9', '7–10 km'],
+  [Infinity, '#ecfeff', 'above 10 km'],
+];
 function altitudeColor(a) {
-  if (a.onGround) return '#6b7280';
+  if (a.onGround) return GROUND_COLOR;
   const alt = a.altitude ?? 0;
-  if (alt < 3000) return '#5eead4';
-  if (alt < 7000) return '#38bdf8';
-  if (alt < 10000) return '#a5b4fc';
-  return '#e0f2fe';
+  return (ALTITUDE_BANDS.find(([max]) => max > 0 && alt < max) ?? ALTITUDE_BANDS.at(-1))[1];
 }
 
 // Thousands of aircraft as DOM markers would crawl, so they are painted on one
@@ -167,7 +176,6 @@ export default function create(ctx) {
 
   function showDetail(a) {
     const [lat, lon] = position(a);
-    const ft = a.altitude != null ? ` (${num(a.altitude * 3.28084)} ft)` : '';
     detail.show({
       key: `aircraft:${a.icao24}`,
       color: altitudeColor(a),
@@ -177,17 +185,18 @@ export default function create(ctx) {
         ['Callsign', a.callsign || '—'],
         ['ICAO 24-bit', a.icao24.toUpperCase()],
         ['Registered in', a.country],
-        ['Altitude', a.onGround ? 'On ground' : a.altitude != null ? `${num(a.altitude)} m${ft}` : '—'],
-        ['Ground speed', a.velocity != null ? `${num(a.velocity * 3.6)} km/h (${num(a.velocity * 1.94384)} kt)` : '—'],
+        ['Altitude', a.onGround ? 'On ground' : a.altitude != null ? `${num(a.altitude)} m` : '—', a.onGround || a.altitude == null ? null : `${num(a.altitude * 3.28084)} ft`],
+        ['Ground speed', a.velocity != null ? `${num(a.velocity * 3.6)} km/h` : '—', a.velocity != null ? `${num(a.velocity * 1.94384)} kt` : null],
         ['Heading', a.track != null ? `${num(a.track)}°` : '—'],
         ['Vertical rate', a.verticalRate != null ? `${a.verticalRate > 0 ? '+' : ''}${num(a.verticalRate, 1)} m/s` : null],
         ['Squawk', a.squawk ? `${a.squawk}${EMERGENCY[a.squawk] ? ` · ${EMERGENCY[a.squawk]}` : ''}` : null],
         ['Category', a.category > 1 ? CATEGORY[a.category] : null],
         ['Position', latLon(lat, lon)],
-        ['Last report', a.lastContact ? `${dateTime(a.lastContact * 1000)} (${timeAgo(a.lastContact * 1000)})` : '—'],
+        ['Last report', a.lastContact ? dateTime(a.lastContact * 1000) : '—', a.lastContact ? timeAgo(a.lastContact * 1000) : null],
       ],
       notes: a.onGround || !a.velocity ? '' : 'Position is estimated from the last report using speed and heading.',
       link: { href: `https://globe.adsbexchange.com/?icao=${a.icao24}`, label: 'Track on ADS-B Exchange ↗' },
+      latlng: [lat, nearLon(lon, map.getCenter().lng)],
     });
   }
 
@@ -211,11 +220,15 @@ export default function create(ctx) {
     const f = data.fields;
     aircraft = data.states.map((row) => Object.fromEntries(f.map((k, i) => [k, row[i]])));
     byIcao = new Map(aircraft.map((a) => [a.icao24, a]));
+    api.urgent = aircraft.some((a) => EMERGENCY[a.squawk]);
     for (const a of aircraft) {
       if (!EMERGENCY[a.squawk]) continue;
       feed.add({
         id: `aircraft:${a.icao24}:${a.squawk}`,
         source: 'aircraft',
+        significant: true,
+        latlng: [a.lat, a.lon],
+        radius: 6,
         time: (a.lastContact ?? data.time / 1000) * 1000,
         color: '#f87171',
         title: `${a.callsign || a.icao24.toUpperCase()} squawking ${a.squawk}`,
@@ -239,7 +252,8 @@ export default function create(ctx) {
   // Filter: only fetch and count aircraft in the current view.
   const hint = el('div', { class: 'hint' }, 'Covers the whole world.');
   const checkbox = el('input', { type: 'checkbox' });
-  const filter = el('div', { class: 'filter' }, el('label', {}, 'Only aircraft in current view', checkbox), hint);
+  const filter = el('div', { class: 'filter' }, el('label', {}, 'Only aircraft in current view', checkbox), hint,
+    legend(ALTITUDE_BANDS.map(([, c, label]) => [c, label]), { label: 'Aircraft altitude colors' }));
   ctx.addFilter(filter);
 
   function viewBox() {

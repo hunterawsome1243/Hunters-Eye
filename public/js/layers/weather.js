@@ -1,13 +1,30 @@
-import { dateTime, el, timeAgo } from '../ui/format.js';
+import { dateTime, el, nearLon, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 
 const COLOR = '#f43f5e';
+// A rose family that steps in lightness, with the fill opacity and the stroke weight
+// following severity, so the difference survives the alpha blend on the map.
 const SEVERITY = {
-  Extreme: { color: '#d946ef', rank: 0 },
-  Severe: { color: '#ef4444', rank: 1 },
-  Moderate: { color: '#f97316', rank: 2 },
-  Minor: { color: '#eab308', rank: 3 },
-  Unknown: { color: '#94a3b8', rank: 4 },
+  Extreme: { color: '#ff8fc6', fill: 0.34, weight: 2, rank: 0 },
+  Severe: { color: '#e11d48', fill: 0.26, weight: 1, rank: 1 },
+  Moderate: { color: '#c9707e', fill: 0.22, weight: 1, rank: 2 },
+  Minor: { color: '#c7a6ae', fill: 0.2, weight: 1, rank: 3 },
+  Unknown: { color: '#605d66', fill: 0.14, weight: 1, rank: 4 },
 };
+
+// The middle of an alert area, with every longitude moved to the world copy nearest
+// the first vertex. NWS serves a zone that straddles the antimeridian (the western
+// Aleutians) in two parts, at +176..180 and -180..-176; the plain bounds of those span
+// the whole world and their centre sits at longitude 0.
+function centerOf(polygons) {
+  const bounds = L.latLngBounds([]);
+  let ref = null;
+  for (const poly of polygons) for (const ring of poly) for (const [lon, lat] of ring) {
+    ref ??= lon;
+    bounds.extend([lat, nearLon(lon, ref)]);
+  }
+  return bounds.isValid() ? bounds.getCenter() : null;
+}
 
 export default function create(ctx) {
   const { map, feed, detail } = ctx;
@@ -28,7 +45,7 @@ export default function create(ctx) {
   });
   ctx.addFilter(el('div', { class: 'filter' },
     el('label', {}, 'Weather alerts', picker),
-    el('div', { class: 'hint' }, ...Object.entries(SEVERITY).flatMap(([name, { color }], i) => [i ? ' · ' : '', el('span', { style: `color:${color}` }, name)]))));
+    legend(Object.entries(SEVERITY).map(([name, { color }]) => [color, name]), { shape: 'square', label: 'Alert severity colors' })));
 
   const passes = (a) => (SEVERITY[a.severity] || SEVERITY.Unknown).rank <= maxRank;
   function applyVisibility(s) {
@@ -39,8 +56,8 @@ export default function create(ctx) {
   }
 
   function style(a, isSelected) {
-    const { color } = SEVERITY[a.severity] || SEVERITY.Unknown;
-    return { color: isSelected ? '#ffffff' : color, weight: isSelected ? 2.5 : 1, opacity: 0.9, fillColor: color, fillOpacity: isSelected ? 0.4 : 0.22 };
+    const { color, fill, weight } = SEVERITY[a.severity] || SEVERITY.Unknown;
+    return { color: isSelected ? '#ffffff' : color, weight: isSelected ? 2.5 : weight, opacity: 0.9, fillColor: color, fillOpacity: isSelected ? 0.4 : fill };
   }
 
   function showDetail(a) {
@@ -53,7 +70,7 @@ export default function create(ctx) {
         ['Area', a.areaDesc],
         ['Urgency', a.urgency],
         ['Certainty', a.certainty],
-        ['Issued', a.sent ? `${dateTime(a.sent)} (${timeAgo(a.sent)})` : null],
+        ['Issued', a.sent ? dateTime(a.sent) : null, a.sent ? timeAgo(a.sent) : null],
         ['Expires', a.expires ? dateTime(a.expires) : null],
         ['Issued by', a.sender],
       ],
@@ -80,6 +97,7 @@ export default function create(ctx) {
   }
 
   function update({ alerts, zones }) {
+    api.urgent = alerts.some((a) => a.severity === 'Extreme');
     const seen = new Set(alerts.map((a) => a.id));
     for (const [id, s] of shapes) {
       if (seen.has(id)) continue;
@@ -116,6 +134,9 @@ export default function create(ctx) {
           source: 'weather',
           time: a.sent ?? Date.now(),
           severity: a.severity,
+          significant: a.severity === 'Extreme' || a.severity === 'Severe',
+          latlng: entry.layer ? centerOf(polygons) : null,
+          radius: 10,
           color: (SEVERITY[a.severity] || SEVERITY.Unknown).color,
           title: a.event,
           subtitle: a.areaDesc,
