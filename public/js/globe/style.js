@@ -32,12 +32,14 @@ const GIBS = 'Imagery: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS / ESD
 
 // Free imagery that needs no key. All are Web Mercator tiles, 256 px.
 export const IMAGERY = {
-  // Sentinel-2 cloudless 2017 by EOX, 10 m, CC BY 4.0. Later years are CC BY-NC-SA.
-  eox2017: {
-    tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2017_3857/default/g/{z}/{y}/{x}.jpg',
+  // Sentinel-2 cloudless 2016 by EOX, 10 m, CC BY 4.0, the global mosaic. The 2017
+  // layer only has imagery over Europe and the Middle East (white land elsewhere);
+  // 2018 and later are global but CC BY-NC-SA.
+  eox2016: {
+    tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg',
     minzoom: 1,
     maxzoom: 12,
-    attribution: '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2017) | <a href="https://maps.eox.at">EOX::Maps</a>',
+    attribution: '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016) | <a href="https://maps.eox.at">EOX::Maps</a>',
   },
   eox2025: {
     tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg',

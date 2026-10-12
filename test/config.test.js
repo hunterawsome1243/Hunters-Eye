@@ -4,7 +4,7 @@ import { imageryConfig } from '../server/app.js';
 
 test('imagery defaults to EOX Sentinel-2 cloudless with its attribution', () => {
   const c = imageryConfig({});
-  assert.ok(c.tiles.includes('s2cloudless-2017'));
+  assert.ok(c.tiles.includes('s2cloudless_3857'));
   assert.ok(c.attribution.includes('EOX'));
   assert.equal(c.maxzoom, 12);
 });

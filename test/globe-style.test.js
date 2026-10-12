@@ -28,13 +28,13 @@ const dark = () => ({
 const ids = (style) => style.layers.map((l) => l.id);
 
 test('imagery goes above the opening run of fills and below the first line', () => {
-  const style = buildStyle(dark(), { imagery: IMAGERY.eox2017 });
+  const style = buildStyle(dark(), { imagery: IMAGERY.eox2016 });
   const order = ids(style);
   assert.equal(order[order.indexOf('he-imagery-base') - 1], 'landuse_park');
   assert.equal(order[order.indexOf('he-imagery') + 1], 'waterway');
-  assert.equal(style.sources['he-imagery'].tiles[0], IMAGERY.eox2017.tiles);
+  assert.equal(style.sources['he-imagery'].tiles[0], IMAGERY.eox2016.tiles);
   assert.equal(style.sources['he-imagery'].maxzoom, 12);
-  const deep = buildStyle(dark(), { imagery: { ...IMAGERY.eox2017, maxzoom: 18 } });
+  const deep = buildStyle(dark(), { imagery: { ...IMAGERY.eox2016, maxzoom: 18 } });
   assert.equal(deep.sources['he-imagery'].maxzoom, 18);
   assert.equal(deep.layers.find((l) => l.id === 'he-imagery').maxzoom, 12);
   assert.equal(style.layers.find((l) => l.id === 'he-imagery').source, 'he-imagery');
@@ -88,7 +88,7 @@ test('3D buildings go right after the building footprints, once, only with openm
 test('buildStyle is pure', () => {
   const base = dark();
   const before = JSON.stringify(base);
-  buildStyle(base, { imagery: IMAGERY.eox2017 });
+  buildStyle(base, { imagery: IMAGERY.eox2016 });
   assert.equal(JSON.stringify(base), before);
 });
 

@@ -10,10 +10,10 @@ const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 const DEFAULT_BASEMAP = 'https://tiles.openfreemap.org/styles/dark';
 
 // Satellite imagery under the vector map, from space down to about z12: EOX's
-// Sentinel-2 cloudless mosaic (2017 layer, CC BY 4.0), keyless. The browser
+// Sentinel-2 cloudless mosaic (2016 global layer, CC BY 4.0), keyless. The browser
 // falls back to NASA Blue Marble on its own if these tiles fail.
-const DEFAULT_IMAGERY_TILES = 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2017_3857/default/g/{z}/{y}/{x}.jpg';
-const DEFAULT_IMAGERY_ATTRIBUTION = '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2017) | <a href="https://maps.eox.at">EOX::Maps</a>';
+const DEFAULT_IMAGERY_TILES = 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg';
+const DEFAULT_IMAGERY_ATTRIBUTION = '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016) | <a href="https://maps.eox.at">EOX::Maps</a>';
 
 export function imageryConfig(env = process.env) {
   const tiles = env.IMAGERY_TILES ?? DEFAULT_IMAGERY_TILES;
