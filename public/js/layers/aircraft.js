@@ -52,9 +52,11 @@ const CanvasLayer = L.Layer.extend({
       if (!this._canvas) return;
       const size = this._map.getSize();
       const dpr = window.devicePixelRatio || 1;
-      if (this._canvas.width !== size.x * dpr || this._canvas.height !== size.y * dpr) {
-        this._canvas.width = size.x * dpr;
-        this._canvas.height = size.y * dpr;
+      const w = Math.round(size.x * dpr);
+      const h = Math.round(size.y * dpr);
+      if (this._canvas.width !== w || this._canvas.height !== h) {
+        this._canvas.width = w;
+        this._canvas.height = h;
         this._canvas.style.width = `${size.x}px`;
         this._canvas.style.height = `${size.y}px`;
       }
@@ -73,8 +75,6 @@ export default function create(ctx) {
   const { map, feed, detail } = ctx;
   let aircraft = []; // objects built from the server's compact rows
   let byIcao = new Map();
-  let receivedAt = 0;
-  let serverTime = 0;
   let selected = null;
   let onlyInView = false;
   let drawn = { xs: new Float32Array(0), ys: new Float32Array(0), idx: new Int32Array(0), n: 0 };
@@ -83,9 +83,10 @@ export default function create(ctx) {
   const layer = new CanvasLayer(draw);
 
   // Estimated position now, from the last report plus speed along the heading.
+  // Age is measured on the server's clock, so a skewed browser clock doesn't matter.
   function position(a, nowMs = Date.now()) {
-    if (a.onGround || !a.velocity || a.track == null) return [a.lat, a.lon];
-    const age = (serverTime / 1000 - (a.timePosition ?? serverTime / 1000)) + (nowMs - receivedAt) / 1000;
+    if (a.onGround || !a.velocity || a.track == null || a.timePosition == null) return [a.lat, a.lon];
+    const age = (nowMs + ctx.clockOffset()) / 1000 - a.timePosition;
     const dt = Math.min(Math.max(age, 0), MAX_EXTRAPOLATE_S);
     const d = a.velocity * dt;
     const rad = (a.track * Math.PI) / 180;
@@ -152,15 +153,9 @@ export default function create(ctx) {
     return best >= 0 ? aircraft[best] : null;
   }
 
-  // Capture-phase listener so a plane wins over whatever lies under it on the map.
+  // Plane clicks are resolved by app.js after point layers (quakes, satellites)
+  // had their chance, and before broad shapes (weather polygons) via ctx.pick().
   const container = map.getContainer();
-  container.addEventListener('click', (e) => {
-    if (!map.hasLayer(layer) || map.dragging?.moved()) return;
-    const a = hitTest(map.mouseEventToContainerPoint(e));
-    if (!a) return;
-    e.stopPropagation();
-    select(a.icao24);
-  }, true);
   let hoverFrame = null;
   container.addEventListener('mousemove', (e) => {
     if (hoverFrame || !map.hasLayer(layer)) return;
@@ -213,8 +208,6 @@ export default function create(ctx) {
   }
 
   function update(data) {
-    receivedAt = Date.now();
-    serverTime = data.time;
     const f = data.fields;
     aircraft = data.states.map((row) => Object.fromEntries(f.map((k, i) => [k, row[i]])));
     byIcao = new Map(aircraft.map((a) => [a.icao24, a]));
@@ -268,6 +261,12 @@ export default function create(ctx) {
   map.on('moveend', () => {
     if (onlyInView) sendView();
   });
+  // Tell the server our setting on load (a previous page may have left a box set),
+  // then keep the box alive while the filter is on; the server drops stale ones.
+  sendView();
+  setInterval(() => {
+    if (onlyInView) sendView();
+  }, 4 * 60_000);
 
   const api = {
     id: 'aircraft',
@@ -277,6 +276,14 @@ export default function create(ctx) {
     layer,
     visible: true,
     update,
+    pick(containerPoint) {
+      const a = hitTest(containerPoint);
+      if (a) select(a.icao24);
+      return !!a;
+    },
+    onHide() {
+      container.classList.remove('hit');
+    },
     count: () => (onlyInView ? inViewCount : aircraft.length),
     onStatus(s) {
       const every = s.intervalMs >= 60_000 ? `${Math.round(s.intervalMs / 60_000)} min` : `${Math.round(s.intervalMs / 1000)} s`;

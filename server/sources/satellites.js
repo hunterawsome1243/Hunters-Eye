@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HttpError, getText } from '../lib/http.js';
@@ -37,52 +37,57 @@ export function parseTle(text, group) {
   return sats;
 }
 
-const memory = new Map(); // group -> { text, fetchedAt } when disk caching is off
+// group -> { text, downloadedAt }. Mirrors the disk cache and stands in for it
+// when CACHE_DIR is empty or not writable.
+const memory = new Map();
+// group -> when we last asked CelesTrak and got no new data (or an error).
+const checkedAt = new Map();
+
+const cacheFile = (group) => join(CACHE_DIR, `celestrak-${group.toLowerCase()}.tle`);
 
 function readCache(group) {
-  if (!CACHE_DIR) return memory.get(group) ?? null;
-  const file = join(CACHE_DIR, `celestrak-${group.toLowerCase()}.tle`);
+  if (memory.has(group) || !CACHE_DIR) return memory.get(group) ?? null;
   try {
-    return { text: readFileSync(file, 'utf8'), fetchedAt: statSync(file).mtimeMs };
+    const entry = { text: readFileSync(cacheFile(group), 'utf8'), downloadedAt: statSync(cacheFile(group)).mtimeMs };
+    memory.set(group, entry);
+    return entry;
   } catch {
     return null;
   }
 }
 
 function writeCache(group, text) {
-  if (!CACHE_DIR) return memory.set(group, { text, fetchedAt: Date.now() });
-  mkdirSync(CACHE_DIR, { recursive: true });
-  writeFileSync(join(CACHE_DIR, `celestrak-${group.toLowerCase()}.tle`), text);
+  memory.set(group, { text, downloadedAt: Date.now() });
+  if (!CACHE_DIR) return;
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(cacheFile(group), text);
+  } catch (err) {
+    console.warn(`[satellites] could not write cache: ${err.message}`);
+  }
 }
 
-function touchCache(group) {
-  if (!CACHE_DIR) {
-    const m = memory.get(group);
-    if (m) m.fetchedAt = Date.now();
-    return;
-  }
-  const now = new Date();
-  try {
-    utimesSync(join(CACHE_DIR, `celestrak-${group.toLowerCase()}.tle`), now, now);
-  } catch {
-    /* nothing cached to touch */
-  }
-}
+export const __testing = { memory, checkedAt };
+
+const lastAsked = (group, cached) => Math.max(cached?.downloadedAt ?? 0, checkedAt.get(group) ?? 0);
 
 async function loadGroup(group) {
   const cached = readCache(group);
-  if (cached && Date.now() - cached.fetchedAt < MAX_AGE_MS) return { ...cached, from: 'cache' };
+  if (cached && Date.now() - lastAsked(group, cached) < MAX_AGE_MS) return cached;
+  let text;
   try {
-    const text = await getText(`${BASE}?GROUP=${group}&FORMAT=TLE`, { timeoutMs: 30_000 });
+    text = await getText(`${BASE}?GROUP=${group}&FORMAT=TLE`, { timeoutMs: 30_000 });
     if (!parseTle(text, group).length) throw new Error(`CelesTrak returned no element sets for ${group}`);
-    writeCache(group, text);
-    return { text, fetchedAt: Date.now(), from: 'network' };
   } catch (err) {
+    // A 403 usually means "no newer data since your last download"; other errors
+    // count against CelesTrak's firewall threshold. Either way, don't ask again
+    // until the next 2-hour update, and keep using what we have.
+    checkedAt.set(group, Date.now());
     if (!cached) throw err;
-    // 403 means "no newer data since your last download": wait for the next update.
-    if (err instanceof HttpError && err.status === 403) touchCache(group);
-    return { ...cached, from: 'stale', error: err.message };
+    return { ...cached, error: err instanceof HttpError && err.status === 403 ? null : err.message };
   }
+  writeCache(group, text);
+  return memory.get(group);
 }
 
 export default {
@@ -105,14 +110,20 @@ export default {
     const byId = new Map();
     for (const r of results) for (const s of parseTle(r.text, r.group)) if (!byId.has(s.id)) byId.set(s.id, s);
     const satellites = [...byId.values()];
-    const oldest = Math.min(...results.map((r) => r.fetchedAt));
+    // Report when the elements were really downloaded, so old data shows as stale.
+    const oldest = Math.min(...results.map((r) => r.downloadedAt));
+    const ageH = (Date.now() - oldest) / 3_600_000;
     const problems = [...errors, ...results.filter((r) => r.error).map((r) => `${r.group}: ${r.error}`)];
+    const notes = [`Element sets downloaded ${new Date(oldest).toISOString().slice(0, 16).replace('T', ' ')} UTC; positions are computed live in the browser.`];
+    if (ageH > 24) notes.push(`Elements are ${Math.round(ageH)} hours old, so positions are less accurate.`);
+    if (problems.length) notes.push(`Using cached data: ${problems.join('; ')}`);
+    const nextCheck = Math.min(...GROUPS.map((g) => lastAsked(g, memory.get(g)) + MAX_AGE_MS));
     return {
       data: { fetchedAt: oldest, satellites },
       count: satellites.length,
       updatedAt: oldest,
-      note: `Element sets fetched ${new Date(oldest).toISOString().slice(11, 16)} UTC; positions are computed live in the browser.${problems.length ? ` Using cached data: ${problems.join('; ')}` : ''}`,
-      nextDelayMs: Math.max(5 * 60_000, oldest + MAX_AGE_MS - Date.now() + 60_000),
+      note: notes.join(' '),
+      nextDelayMs: Math.max(5 * 60_000, nextCheck - Date.now() + 60_000),
     };
   },
 };

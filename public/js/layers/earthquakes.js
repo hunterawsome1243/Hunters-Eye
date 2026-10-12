@@ -1,4 +1,4 @@
-import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
+import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
 
 const HOUR = 3_600_000;
 const AGE_COLORS = [
@@ -89,7 +89,7 @@ export default function create(ctx) {
     const cur = markers.get(id);
     if (!cur) return;
     if (!map.hasLayer(group)) return;
-    map.flyTo([cur.quake.lat, cur.quake.lon], Math.max(map.getZoom(), 5), { duration: 0.8 });
+    map.flyTo([cur.quake.lat, nearLon(cur.quake.lon, map.getCenter().lng)], Math.max(map.getZoom(), 5), { duration: 0.8 });
     select(id);
   }
 
@@ -98,15 +98,17 @@ export default function create(ctx) {
     for (const q of quakes) {
       seen.add(q.id);
       const existing = markers.get(q.id);
+      const prevMag = existing?.quake.mag;
+      const center = map.getCenter().lng;
       if (existing) {
         existing.quake = q;
-        existing.marker.setLatLng([q.lat, q.lon]).setStyle(style(q, q.id === selected));
+        existing.marker.setLatLng([q.lat, nearLon(q.lon, center)]).setStyle(style(q, q.id === selected));
       } else {
-        const marker = L.circleMarker([q.lat, q.lon], { ...style(q, false), bubblingMouseEvents: false });
+        const marker = L.circleMarker([q.lat, nearLon(q.lon, center)], { ...style(q, false), bubblingMouseEvents: false });
         marker.on('click', () => select(q.id));
         markers.set(q.id, { quake: q, marker });
       }
-      if (!existing || existing.quake.mag !== q.mag) {
+      if (!existing || prevMag !== q.mag) {
         feed.add({
           id: `earthquakes:${q.id}`,
           replace: true,
@@ -130,6 +132,14 @@ export default function create(ctx) {
     applyFilter();
     if (selected && markers.has(selected) && detail.key === `earthquakes:${selected}`) showDetail(markers.get(selected).quake);
   }
+
+  map.on('moveend', () => {
+    const center = map.getCenter().lng;
+    for (const { quake, marker } of markers.values()) {
+      const lon = nearLon(quake.lon, center);
+      if (marker.getLatLng().lng !== lon) marker.setLatLng([quake.lat, lon]);
+    }
+  });
 
   // Ages move on even without new data, so recolor every minute.
   setInterval(() => {

@@ -45,8 +45,15 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
 });
 const filtersEl = document.getElementById('filters');
 
+let clockOffset = 0; // server clock minus browser clock, from /api/status
+
 const ctx = {
   map,
+  clockOffset: () => clockOffset,
+  // Give clickable layers (aircraft) first claim on a click at this point.
+  pick(containerPoint) {
+    return layers.some((l) => map.hasLayer(l.layer) && l.pick?.(containerPoint));
+  },
   feed,
   detail,
   addFilter: (node) => filtersEl.append(node),
@@ -115,7 +122,8 @@ async function loadSource(s) {
 async function tick() {
   let delay = STATUS_POLL_MS;
   try {
-    const { sources } = await getJson('/api/status');
+    const { sources, serverTime } = await getJson('/api/status');
+    clockOffset = serverTime - Date.now();
     if (sources.some((s) => s.loading)) delay = 1000; // first load: pick data up as soon as it lands
     sources.forEach(noteHealth);
     for (const s of sources) byId.get(s.id)?.onStatus?.(s);
@@ -128,7 +136,11 @@ async function tick() {
   }
 }
 
-map.on('click', () => detail.hide());
+// Reaches the map only when no marker or shape took the click (they set
+// bubblingMouseEvents: false) and never for clicks on map controls.
+map.on('click', (e) => {
+  if (!ctx.pick(e.containerPoint)) detail.hide();
+});
 
 // Small handle for scripts/smoke.mjs and for poking around in the console.
 window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };

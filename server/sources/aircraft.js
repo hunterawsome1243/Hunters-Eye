@@ -106,7 +106,16 @@ async function getToken(force = false) {
 }
 
 const overrideMs = intervalFromEnv('AIRCRAFT_INTERVAL_SEC', 0);
+// The browser re-sends its view every few minutes while the filter is on. If it
+// stops (tab closed, page reloaded), go back to the whole world.
+const BBOX_TTL_MS = 10 * 60_000;
 let bbox = null;
+let bboxSetAt = 0;
+
+function currentBbox() {
+  if (bbox && Date.now() - bboxSetAt > BBOX_TTL_MS) bbox = null;
+  return bbox;
+}
 
 async function fetchStates(box, retry = true) {
   const params = new URLSearchParams({ extended: '1' });
@@ -130,14 +139,15 @@ async function fetchStates(box, retry = true) {
 export default {
   id: 'aircraft',
   name: 'Aircraft',
-  intervalMs: () => overrideMs || delayFor(bbox),
+  intervalMs: () => overrideMs || delayFor(currentBbox()),
   errorRetryMs: 120_000,
   describe: () => `${CLIENT_ID ? 'OpenSky API client' : 'anonymous OpenSky'}, ${dailyCredits()} credits/day`,
   setOptions(opts) {
     bbox = normalizeBbox(opts.bbox);
+    bboxSetAt = Date.now();
   },
   async fetch() {
-    const box = bbox;
+    const box = currentBbox();
     const res = await fetchStates(box);
     const data = { ...normalizeStates(await res.json()), bbox: box };
     const remaining = res.headers.get('x-rate-limit-remaining');

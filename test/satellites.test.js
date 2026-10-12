@@ -9,6 +9,7 @@ let upstream;
 let cacheDir;
 let source;
 let parseTle;
+let testing;
 let hits = 0;
 let fail403 = false;
 
@@ -26,6 +27,7 @@ before(async () => {
   const mod = await import('../server/sources/satellites.js');
   source = mod.default;
   parseTle = mod.parseTle;
+  testing = mod.__testing;
 });
 
 after(() => {
@@ -53,12 +55,16 @@ test('downloads each group once, then serves from the disk cache', async () => {
   assert.ok(first.nextDelayMs > 60 * 60_000, 'next check is about 2 hours out');
 });
 
-test('a 403 from CelesTrak keeps the cached data instead of failing', async () => {
-  const { utimesSync, readdirSync } = await import('node:fs');
-  const old = new Date(Date.now() - 3 * 60 * 60_000);
-  for (const f of readdirSync(cacheDir)) utimesSync(join(cacheDir, f), old, old);
+test('a 403 from CelesTrak keeps the cached data, reports its real age, and is not retried early', async () => {
+  const old = Date.now() - 3 * 60 * 60_000;
+  for (const entry of testing.memory.values()) entry.downloadedAt = old;
   fail403 = true;
+  hits = 0;
   const res = await source.fetch();
   assert.equal(res.count, 6);
-  assert.match(res.note, /cached/i);
+  assert.equal(hits, 2, 'asked once per group');
+  assert.equal(res.updatedAt, old, 'reports the real download time, not the check time');
+  await source.fetch();
+  assert.equal(hits, 2, 'no retry before the next 2-hour update');
+  assert.ok(res.nextDelayMs > 60 * 60_000);
 });

@@ -105,6 +105,25 @@ try {
     const got = (await page.locator('#detail:not([hidden]) .detail-title').textContent().catch(() => '')) || '';
     check('Aircraft: clicking a plane on the map opens it', got === want, `${want} -> ${got}`);
 
+    // Map controls and point markers must not be swallowed by planes underneath.
+    const zoomBefore = await page.evaluate(() => window.__huntersEye.map.getZoom());
+    await page.locator('.leaflet-control-zoom-in').click();
+    await page.waitForTimeout(600);
+    const zoomAfter = await page.evaluate(() => window.__huntersEye.map.getZoom());
+    check('Zoom button works over aircraft', zoomAfter === zoomBefore + 1, `${zoomBefore} -> ${zoomAfter}`);
+
+    const quake = await page.evaluate(() => {
+      const app = window.__huntersEye;
+      app.selectFirst('earthquakes');
+      return document.querySelector('#detail .detail-title').textContent;
+    });
+    await page.waitForTimeout(1500);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(300);
+    const clicked = (await page.locator('#detail:not([hidden]) .detail-title').textContent().catch(() => '')) || '';
+    check('Earthquake click wins over aircraft', clicked === quake, `${quake} -> ${clicked}`);
+
     // The view filter should reach the server and narrow what it fetches.
     await page.locator('.filter label', { hasText: 'Only aircraft in current view' }).locator('input').check();
     let note = '';

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { simplifyLine } from '../server/lib/geometry.js';
-import { startFakeUpstream } from '../scripts/fake-upstream.mjs';
+import { routes, startFakeUpstream } from '../scripts/fake-upstream.mjs';
 
 let upstream;
 let source;
@@ -16,6 +16,17 @@ before(async () => {
 });
 
 after(() => upstream.close());
+
+test('a brief zone outage does not blacklist zones', async () => {
+  const original = routes['/zones'];
+  routes['/zones'] = () => ({ status: 503, body: 'unavailable' });
+  const down = await source.fetch();
+  assert.ok(down.data.alerts.find((a) => a.event === 'Excessive Heat Warning').zoneIds.length === 0);
+  assert.equal(down.nextDelayMs, 30_000, 'retries soon');
+  routes['/zones'] = original;
+  const up = await source.fetch();
+  assert.equal(up.data.alerts.find((a) => a.event === 'Excessive Heat Warning').zoneIds.length, 2);
+});
 
 test('zone-based alerts get outlines from the zones endpoint; polygon alerts keep their own', async () => {
   const { data, count, note } = await source.fetch();

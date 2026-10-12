@@ -35,9 +35,10 @@ export function latLon(lat, lon) {
   return `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
 }
 
-// Wrap a longitude into [-180, 180).
-export function wrapLon(lon) {
-  return ((((lon + 180) % 360) + 360) % 360) - 180;
+// The copy of a longitude closest to the map centre, so items near the
+// antimeridian are drawn on the side of the world the user is looking at.
+export function nearLon(lon, centerLon) {
+  return lon + 360 * Math.round((centerLon - lon) / 360);
 }
 
 export function el(tag, attrs = {}, ...children) {

@@ -64,7 +64,7 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | Port to listen on. |
-| `HOST` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` to open the dashboard to other devices on your network. |
+| `HOST` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` to open the dashboard to other devices on your network. Everyone then shares one server cache, including the aircraft view box. |
 | `USER_AGENT` | `HuntersEye/0.1 (+repo URL)` | Sent to every API. NWS requires one; adding your email lets them contact you. |
 | `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | empty | A free OpenSky API client (sign in at opensky-network.org, Account page, create an API client). Raises aircraft credits from 400 to 4,000 a day. |
 | `EARTHQUAKES_INTERVAL_SEC`, `AIRCRAFT_INTERVAL_SEC`, `WEATHER_INTERVAL_SEC` | safe defaults | Override a refresh interval. The aircraft override skips the credit budgeting, so you can run out of credits. |

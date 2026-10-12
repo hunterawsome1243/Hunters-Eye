@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { intervalFromEnv } from '../lib/env.js';
 import { polygonsOf } from '../lib/geometry.js';
-import { getJson } from '../lib/http.js';
+import { HttpError, getJson } from '../lib/http.js';
 
 // US National Weather Service active alerts. Free, no key, but a User-Agent is
 // required. Rate limits are not published ("generous"); errors clear within ~5 s.
@@ -35,12 +35,17 @@ if (ZONE_FILE) {
   }
 }
 
+// The disk cache is a convenience: if it can't be written, keep going from memory.
 function saveZones() {
   if (!ZONE_FILE) return;
   const out = {};
   for (const [url, z] of zones) if (z.polygons) out[url] = z.polygons;
-  mkdirSync(CACHE_DIR, { recursive: true });
-  writeFileSync(ZONE_FILE, JSON.stringify(out));
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(ZONE_FILE, JSON.stringify(out));
+  } catch (err) {
+    console.warn(`[weather] could not write zone cache: ${err.message}`);
+  }
 }
 
 const zoneUrl = (url) => (url.startsWith(API_ORIGIN) ? ZONE_ORIGIN + url.slice(API_ORIGIN.length) : url);
@@ -49,15 +54,22 @@ async function loadZones(urls) {
   const queue = [...urls];
   const deadline = Date.now() + ZONE_TIME_BUDGET_MS;
   let loaded = 0;
+  let halted = false;
   async function worker() {
-    while (queue.length && Date.now() < deadline) {
+    while (queue.length && !halted && Date.now() < deadline) {
       const url = queue.shift();
       try {
         const zone = await getJson(zoneUrl(url), { headers: ACCEPT, timeoutMs: 15_000 });
         zones.set(url, { polygons: polygonsOf(zone.geometry) });
         loaded++;
-      } catch {
-        zones.set(url, { failedAt: Date.now() });
+      } catch (err) {
+        if (err instanceof HttpError && (err.status === 404 || err.status === 410)) {
+          zones.set(url, { failedAt: Date.now() }); // no such zone; check again in a few hours
+        } else {
+          // Outage or rate limit: stop for this cycle and retry these zones next time.
+          halted = true;
+          queue.unshift(url);
+        }
       }
     }
   }

@@ -68,7 +68,7 @@ export default function create(ctx) {
     const cur = shapes.get(id);
     if (!cur) return;
     ctx.select(api);
-    if (cur.layer) cur.layer.setStyle(style(cur.alert, true)).bringToFront();
+    if (cur.layer) cur.layer.setStyle(style(cur.alert, true));
     showDetail(cur.alert);
   }
 
@@ -102,7 +102,8 @@ export default function create(ctx) {
       entry.alert = a;
       if (!entry.layer && polygons.length) {
         entry.layer = L.geoJSON({ type: 'MultiPolygon', coordinates: polygons }, { style: style(a, a.id === selected), bubblingMouseEvents: false });
-        entry.layer.on('click', () => select(a.id));
+        // A plane inside the alert area wins over the area itself.
+        entry.layer.on('click', (e) => ctx.pick(e.containerPoint) || select(a.id));
         entry.polygonCount = polygons.length;
       } else if (entry.layer && hadShape) {
         entry.layer.setStyle(style(a, a.id === selected));
@@ -121,6 +122,11 @@ export default function create(ctx) {
           onClick: () => focus(a.id),
         });
       }
+    }
+    // All vectors share one canvas, and the last one added is drawn on top and gets
+    // the click. Keep alert areas beneath quakes and satellites, worst alerts uppermost.
+    for (const a of [...alerts].sort((x, y) => SEVERITY[x.severity].rank - SEVERITY[y.severity].rank)) {
+      shapes.get(a.id)?.layer?.bringToBack();
     }
     if (selected && shapes.has(selected) && detail.key === `weather:${selected}`) showDetail(shapes.get(selected).alert);
   }

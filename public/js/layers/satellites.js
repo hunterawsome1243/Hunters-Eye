@@ -1,4 +1,4 @@
-import { dateTime, el, latLon, num, timeAgo, wrapLon } from '../ui/format.js';
+import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
 
 const COLOR = '#e879f9';
 const EARTH_RADIUS_KM = 6371;
@@ -83,13 +83,19 @@ export default function create(ctx) {
     if (!s?.pos) return;
     const periodMs = ((2 * Math.PI) / s.satrec.no) * 60_000;
     const now = Date.now();
+    const center = map.getCenter().lng;
+    // Each segment lies within [-180, 180]; move it to the world copy in view.
+    const shift = (seg) => {
+      const d = nearLon(seg[Math.floor(seg.length / 2)][1], center) - seg[Math.floor(seg.length / 2)][1];
+      return d ? seg.map(([lat, lon]) => [lat, lon + d]) : seg;
+    };
     for (const seg of trackSegments(s.satrec, now - periodMs / 2, now)) {
-      L.polyline(seg, { color: COLOR, weight: 1.5, opacity: 0.45, dashArray: '4 6', interactive: false }).addTo(trackLayer);
+      L.polyline(shift(seg), { color: COLOR, weight: 1.5, opacity: 0.45, dashArray: '4 6', interactive: false }).addTo(trackLayer);
     }
     for (const seg of trackSegments(s.satrec, now, now + periodMs)) {
-      L.polyline(seg, { color: COLOR, weight: 2, opacity: 0.85, interactive: false }).addTo(trackLayer);
+      L.polyline(shift(seg), { color: COLOR, weight: 2, opacity: 0.85, interactive: false }).addTo(trackLayer);
     }
-    s.footprint = L.circle([s.pos.lat, s.pos.lon], {
+    s.footprint = L.circle([s.pos.lat, nearLon(s.pos.lon, center)], {
       radius: footprintRadius(s.pos.alt), color: COLOR, weight: 1, opacity: 0.5, fillOpacity: 0.06, interactive: false,
     }).addTo(trackLayer);
   }
@@ -138,21 +144,22 @@ export default function create(ctx) {
   function focus(id) {
     const s = sats.get(id);
     if (!s?.pos || !map.hasLayer(group)) return;
-    map.flyTo([s.pos.lat, s.pos.lon], Math.max(Math.min(map.getZoom(), 4), 3), { duration: 0.8 });
+    map.flyTo([s.pos.lat, nearLon(s.pos.lon, map.getCenter().lng)], Math.max(Math.min(map.getZoom(), 4), 3), { duration: 0.8 });
     select(id);
   }
 
   function tick() {
     const now = new Date();
+    const center = map.getCenter().lng;
     for (const s of sats.values()) {
       s.pos = locate(s.satrec, now);
-      if (s.pos) s.marker.setLatLng([s.pos.lat, wrapLon(s.pos.lon)]);
+      if (s.pos) s.marker.setLatLng([s.pos.lat, nearLon(s.pos.lon, center)]);
       applyVisibility(s);
     }
     const t = sats.get(tracked);
-    if (t?.footprint && t.pos) t.footprint.setLatLng([t.pos.lat, t.pos.lon]).setRadius(footprintRadius(t.pos.alt));
+    if (t?.footprint && t.pos) t.footprint.setLatLng([t.pos.lat, nearLon(t.pos.lon, center)]).setRadius(footprintRadius(t.pos.alt));
     if (Date.now() - trackDrawnAt > 60_000) drawTrack();
-    if (selected && detail.key === `satellites:${selected}`) showDetail(sats.get(selected));
+    if (selected && sats.has(selected) && detail.key === `satellites:${selected}`) showDetail(sats.get(selected));
   }
 
   function update({ satellites, fetchedAt }) {
@@ -161,6 +168,11 @@ export default function create(ctx) {
       if (ids.has(id)) continue;
       group.removeLayer(s.marker);
       sats.delete(id);
+      if (id === selected) {
+        selected = null;
+        if (detail.key === `satellites:${id}`) detail.hide();
+      }
+      if (id === tracked) tracked = DEFAULT_TRACKED;
     }
     for (const sat of satellites) {
       const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
@@ -194,6 +206,11 @@ export default function create(ctx) {
   setInterval(() => {
     if (map.hasLayer(group) && sats.size) tick();
   }, TICK_MS);
+  map.on('moveend', () => {
+    if (!map.hasLayer(group) || !sats.size) return;
+    tick();
+    drawTrack();
+  });
 
   const api = {
     id: 'satellites',
