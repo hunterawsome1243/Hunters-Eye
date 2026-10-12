@@ -1,0 +1,22 @@
+{
+  "name": "hunters-eye",
+  "version": "0.1.0",
+  "description": "OSINT dashboard: earthquakes, aircraft, satellites and severe weather on one live map",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.1.0",
+    "leaflet": "^1.9.4",
+    "satellite.js": "^6.0.1"
+  }
+}
