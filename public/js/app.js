@@ -143,6 +143,7 @@ function noteHealth(s) {
     id: `system:${s.id}:${Date.now()}`,
     source: 'system',
     system: true,
+    kind: state,
     time: Date.now(),
     color: state === 'error' ? 'var(--bad)' : 'var(--ok)',
     title: state === 'error' ? `${layer.name} feed failed` : `${layer.name} feed recovered`,
@@ -206,7 +207,7 @@ map.on('click', (e) => {
 });
 
 // Small handle for scripts/smoke.mjs and for poking around in the console.
-window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
+window.__huntersEye = { map, layers, feed, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
 
 getJson('/api/config')
   .then(({ basemap, fallback }) => {

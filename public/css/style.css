@@ -21,6 +21,7 @@
   /* Accent and status */
   --accent: #38bdf8;
   --accent-strong: #7dd3fc;
+  --accent-tint: rgba(56, 189, 248, 0.14); /* a wash of accent for "just landed" */
   --ok: #34d399;
   --warn: #fbbf24;
   --bad: #f87171;
@@ -247,8 +248,16 @@ body.sidebar-open .sidebar { transform: none; }
 .legend[data-shape="square"] .swatch { border-radius: 2px; }
 
 /* Live feed */
-.feed { list-style: none; margin: 0 calc(-1 * var(--space-4)); padding: 0; overflow-y: auto; flex: 1; overscroll-behavior: contain; scroll-behavior: smooth; }
+.feed { list-style: none; margin: 0 calc(-1 * var(--space-4)); padding: 0; overflow-y: auto; flex: 1; overscroll-behavior: contain; scroll-behavior: smooth;
+  overflow-anchor: none; /* feed.js keeps the row under the eye in place itself */
+  transition: box-shadow var(--dur-fast) var(--ease); }
+.feed-section.scrolled .feed { box-shadow: inset 0 10px 8px -8px rgba(0, 0, 0, 0.6); } /* rows slide under the heading */
 .feed li { border-top: 1px solid var(--border); }
+/* A row that just landed slides in and glows for a second; a revised row only glows */
+.feed li.new { animation: feed-in var(--dur-base) var(--ease) both, feed-glow 1.2s var(--ease); }
+.feed li.updated { animation: feed-glow 1.2s var(--ease); }
+@keyframes feed-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes feed-glow { from { background: var(--accent-tint); } }
 .feed button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 10px 1fr auto; gap: var(--space-1) var(--space-2);
   width: 100%; padding: var(--space-2) var(--space-4); cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease); }
@@ -263,6 +272,8 @@ body.sidebar-open .sidebar { transform: none; }
 .feed button[aria-current]:active { background: var(--panel-4); }
 .feed button[aria-current]:focus-visible { box-shadow: var(--ring-inset), inset 3px 0 0 var(--accent); }
 .feed .swatch { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+.feed .swatch.icon { width: 12px; height: 12px; margin: 3px 0 0 -1px; border-radius: 0; color: var(--c); }
+.feed .swatch.icon svg { display: block; width: 100%; height: 100%; }
 .feed .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed .time { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .feed .sub { grid-column: 2 / 4; color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
