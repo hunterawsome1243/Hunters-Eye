@@ -29,6 +29,19 @@ export function createApp(sources, pollerOptions) {
     res.json({ status: poller.status(), data: poller.data });
   });
 
+  // Lets the browser adjust what a source fetches, e.g. the aircraft bounding box.
+  app.put('/api/sources/:id/options', express.json({ limit: '4kb' }), (req, res) => {
+    const poller = pollers.get(req.params.id);
+    if (!poller?.source.setOptions) return res.status(404).json({ error: `Source "${req.params.id}" has no options` });
+    try {
+      poller.source.setOptions(req.body ?? {});
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    poller.touch();
+    res.json({ status: poller.status() });
+  });
+
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
   return { app, pollers };

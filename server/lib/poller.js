@@ -15,6 +15,7 @@ export class SourcePoller {
     this.error = null;
     this.note = null;
     this.nextAt = null;
+    this.earliestNext = 0; // never call upstream before this, even after waking from idle
     this.lastRequested = 0;
     this.timer = null;
     this.inflight = null;
@@ -27,7 +28,7 @@ export class SourcePoller {
   // Called whenever a browser asks for status or data. Wakes the poller if it slept.
   touch() {
     this.lastRequested = this.now();
-    if (!this.timer && !this.inflight) this.schedule(0);
+    if (!this.timer && !this.inflight) this.schedule(Math.max(0, this.earliestNext - this.now()));
   }
 
   schedule(delayMs) {
@@ -68,6 +69,7 @@ export class SourcePoller {
       delay = Math.max(this.source.errorRetryMs ?? delay, err.retryAfterMs || 0);
       console.warn(`[${this.source.id}] ${this.error}`);
     }
+    this.earliestNext = this.now() + delay;
     this.schedule(delay);
   }
 

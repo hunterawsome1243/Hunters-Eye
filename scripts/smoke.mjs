@@ -24,6 +24,7 @@ if (fake) {
     CELESTRAK_URL: `${base}/celestrak`,
     NWS_URL: `${base}/nws`,
     SATELLITE_CACHE_DIR: '',
+    AIRCRAFT_INTERVAL_SEC: '3',
   });
 }
 
@@ -88,6 +89,31 @@ try {
     await page.waitForTimeout(400);
     const title = (await page.locator('#detail:not([hidden]) .detail-title').textContent().catch(() => '')) || '';
     check(`${s.name}: clicking an item opens details`, opened && title.length > 0, title.trim());
+  }
+
+  // A real click on the canvas: focus a plane (it ends up mid-map), close the
+  // panel, then click the middle of the map and expect that plane again.
+  if (status.sources.some((s) => s.id === 'aircraft' && s.updatedAt)) {
+    await page.evaluate(() => window.__huntersEye.selectFirst('aircraft'));
+    await page.waitForTimeout(1500);
+    const want = await page.locator('#detail .detail-title').textContent();
+    await page.keyboard.press('Escape');
+    const box = await page.locator('#map').boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(300);
+    const got = (await page.locator('#detail:not([hidden]) .detail-title').textContent().catch(() => '')) || '';
+    check('Aircraft: clicking a plane on the map opens it', got === want, `${want} -> ${got}`);
+
+    // The view filter should reach the server and narrow what it fetches.
+    await page.locator('.filter label', { hasText: 'Only aircraft in current view' }).locator('input').check();
+    let note = '';
+    for (let i = 0; i < (fake ? 10 : 0); i++) {
+      await page.waitForTimeout(1000);
+      const s = await page.evaluate(() => fetch('/api/status').then((r) => r.json()));
+      note = s.sources.find((x) => x.id === 'aircraft').note || '';
+      if (note.includes('map view')) break;
+    }
+    if (fake) check('Aircraft: view filter narrows the server query', note.includes('map view'), note);
   }
 
   await page.waitForTimeout(1500);

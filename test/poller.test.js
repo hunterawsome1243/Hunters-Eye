@@ -57,3 +57,15 @@ test('concurrent runs share one upstream request', async () => {
   assert.equal(calls, 1);
   poller.stop();
 });
+
+test('waking from idle still waits out the previous interval', async () => {
+  let calls = 0;
+  const poller = new SourcePoller({ id: 'x', name: 'X', intervalMs: 600_000, fetch: async () => ({ data: ++calls }) }, { idleMs: 1000 });
+  poller.lastRequested = Date.now();
+  await poller.run();
+  poller.stop();
+  poller.touch();
+  assert.ok(poller.nextAt - Date.now() > 590_000, 'next call is still ~10 minutes out');
+  assert.equal(calls, 1);
+  poller.stop();
+});

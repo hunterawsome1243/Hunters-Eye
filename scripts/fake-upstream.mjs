@@ -25,8 +25,35 @@ function usgs() {
   };
 }
 
+// Deterministic pseudo-random numbers so every run draws the same traffic.
+function rng(seed) {
+  return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+}
+
+function opensky(req) {
+  const q = new URL(req.url, 'http://x').searchParams;
+  const box = q.has('lamin') ? ['lamin', 'lomin', 'lamax', 'lomax'].map((k) => Number(q.get(k))) : [-60, -180, 70, 180];
+  const r = rng(42);
+  const t = Math.floor(now() / 1000);
+  const states = [];
+  for (let i = 0; i < 4000; i++) {
+    const lat = -50 + r() * 115;
+    const lon = -180 + r() * 360;
+    if (lat < box[0] || lat > box[2] || lon < box[1] || lon > box[3]) continue;
+    const onGround = r() < 0.06;
+    const squawk = i === 7 ? '7700' : i === 99 ? '7600' : String(1000 + Math.floor(r() * 6000));
+    states.push([
+      (0xa00000 + i).toString(16), `TST${String(i).padStart(4, '0')} `, ['United States', 'Germany', 'Japan', 'Brazil'][i % 4],
+      t - 4, t - 1, lon, lat, onGround ? null : 1000 + r() * 11000, onGround, onGround ? 5 : 120 + r() * 140,
+      r() * 360, onGround ? null : (r() - 0.5) * 20, null, onGround ? null : 1000 + r() * 11000, squawk, false, 0, Math.floor(r() * 8),
+    ]);
+  }
+  return { time: t, states };
+}
+
 export const routes = {
   '/usgs': usgs,
+  '/opensky/states/all': opensky,
 };
 
 export function startFakeUpstream(port = 0) {

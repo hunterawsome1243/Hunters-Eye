@@ -116,6 +116,7 @@ async function tick() {
   try {
     const { sources } = await getJson('/api/status');
     sources.forEach(noteHealth);
+    for (const s of sources) byId.get(s.id)?.onStatus?.(s);
     await Promise.all(sources.map(loadSource));
     summary.update(sources);
   } catch {

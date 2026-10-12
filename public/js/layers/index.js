@@ -8,10 +8,12 @@
 //     clearSelection(),           // another layer took the selection
 //     focusFirst(),               // select a representative item (used by the smoke test)
 //     acceptsFeed?(entry),        // hide some of this layer's feed entries (filters)
+//     onStatus?(status),         // the server's latest status for this source
 //     onShow?(), onHide?(),
 //   }
 // ctx gives { map, feed, detail, addFilter(node), select(layer), isVisible(id) }.
 // To add a layer, write a module like these and add it to the list.
+import aircraft from './aircraft.js';
 import earthquakes from './earthquakes.js';
 
-export const layerModules = [earthquakes];
+export const layerModules = [earthquakes, aircraft];
