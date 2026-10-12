@@ -88,14 +88,15 @@ requestAnimationFrame(() => [sidebar, scrim, document.getElementById('map')].for
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
 scrim.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the panel until the close moves it
 scrim.addEventListener('click', () => setSidebar(false));
-// Escape closes the open phone panel before anything under the scrim. The sheet's own
-// Escape is registered later in this file, so the stop here reaches it; the chip
-// popover's capture-phase Escape still goes first.
-document.addEventListener('keydown', (e) => {
+// Escape closes the open phone panel before anything under the scrim. A capture
+// listener on body runs before the sheet's own Escape (a document listener), whatever
+// the order they were added in; the chip popover's capture listener on document runs
+// first still, and stops the key there while a popover is open.
+document.body.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !PHONE.matches || !document.body.classList.contains('sidebar-open')) return;
-  e.stopImmediatePropagation();
+  e.stopPropagation();
   setSidebar(false);
-});
+}, true);
 
 // A touch swipe to the left drags the phone sidebar closed; the scrim fades with it.
 // touch-action: pan-y leaves vertical gestures to the browser, so the feed still scrolls.
