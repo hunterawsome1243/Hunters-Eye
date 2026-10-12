@@ -6,9 +6,12 @@
 //     update(data),               // called with fresh data from /api/sources/<id>
 //     count(),                    // number shown in the summary bar
 //     clearSelection(),           // another layer took the selection
+//     focusFirst(),               // select a representative item (used by the smoke test)
 //     acceptsFeed?(entry),        // hide some of this layer's feed entries (filters)
 //     onShow?(), onHide?(),
 //   }
 // ctx gives { map, feed, detail, addFilter(node), select(layer), isVisible(id) }.
 // To add a layer, write a module like these and add it to the list.
-export const layerModules = [];
+import earthquakes from './earthquakes.js';
+
+export const layerModules = [earthquakes];

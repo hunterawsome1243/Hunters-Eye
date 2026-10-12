@@ -87,7 +87,7 @@ function noteHealth(s) {
   const state = s.error ? 'error' : s.updatedAt ? 'ok' : 'loading';
   const before = health.get(s.id);
   health.set(s.id, state);
-  if (state === before || state === 'loading' || (before === undefined && state === 'ok')) return;
+  if (state === before || state === 'loading' || (state === 'ok' && before !== 'error')) return;
   feed.add({
     id: `system:${s.id}:${Date.now()}`,
     source: 'system',
@@ -126,4 +126,7 @@ async function tick() {
 }
 
 map.on('click', () => detail.hide());
+
+// Small handle for scripts/smoke.mjs and for poking around in the console.
+window.__huntersEye = { map, layers, selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false };
 tick();

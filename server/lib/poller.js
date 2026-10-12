@@ -62,6 +62,7 @@ export class SourcePoller {
       this.note = result.note ?? null;
       this.updatedAt = result.updatedAt ?? this.now();
       this.error = null;
+      if (result.nextDelayMs != null) delay = result.nextDelayMs;
     } catch (err) {
       this.error = err.message || String(err);
       delay = Math.max(this.source.errorRetryMs ?? delay, err.retryAfterMs || 0);

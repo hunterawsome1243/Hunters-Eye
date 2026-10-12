@@ -1,0 +1,110 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "generated": 1791808490790,
+  "title": "USGS All Earthquakes, Past Day",
+  "count": 4
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "us7000aaa1",
+   "properties": {
+    "mag": 5.8,
+    "place": "95 km E of Namie, Japan",
+    "time": 1791807290790,
+    "updated": 1791807290790,
+    "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000aaa1",
+    "felt": null,
+    "alert": null,
+    "status": "automatic",
+    "tsunami": 0,
+    "magType": "ml",
+    "type": "earthquake"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     142.3,
+     38.1,
+     35.2
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "ci40000001",
+   "properties": {
+    "mag": 3.1,
+    "place": "12 km SW of Searles Valley, CA",
+    "time": 1791797690790,
+    "updated": 1791797690790,
+    "url": "https://earthquake.usgs.gov/earthquakes/eventpage/ci40000001",
+    "felt": null,
+    "alert": null,
+    "status": "automatic",
+    "tsunami": 0,
+    "magType": "ml",
+    "type": "earthquake"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -117.6,
+     35.7,
+     8.1
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "ak0240001",
+   "properties": {
+    "mag": 1.2,
+    "place": "20 km N of Anchorage, Alaska",
+    "time": 1791772490790,
+    "updated": 1791772490790,
+    "url": "https://earthquake.usgs.gov/earthquakes/eventpage/ak0240001",
+    "felt": null,
+    "alert": null,
+    "status": "automatic",
+    "tsunami": 0,
+    "magType": "ml",
+    "type": "earthquake"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -150.1,
+     61.3,
+     40
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "hv74000001",
+   "properties": {
+    "mag": 2.6,
+    "place": "6 km S of Volcano, Hawaii",
+    "time": 1791729290790,
+    "updated": 1791729290790,
+    "url": "https://earthquake.usgs.gov/earthquakes/eventpage/hv74000001",
+    "felt": null,
+    "alert": null,
+    "status": "automatic",
+    "tsunami": 0,
+    "magType": "ml",
+    "type": "earthquake"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -155.3,
+     19.4,
+     2
+    ]
+   }
+  }
+ ]
+}
