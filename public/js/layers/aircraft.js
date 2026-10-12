@@ -22,13 +22,16 @@ function altitudeColor(a) {
 }
 
 // Thousands of aircraft as DOM markers would crawl, so they are painted on one
-// canvas laid over the map and redrawn on every move. Clicks are hit-tested here.
+// canvas and redrawn on every move. The canvas lives in its own pane between the
+// tiles and the vector overlays, so quakes, alerts and satellites stay on top.
+// Clicks are hit-tested in create() below.
 const CanvasLayer = L.Layer.extend({
   initialize(draw) {
     this._draw = draw;
   },
   onAdd(map) {
-    this._canvas = L.DomUtil.create('canvas', 'aircraft-canvas', map.getContainer());
+    if (!map.getPane('aircraft')) map.createPane('aircraft').style.zIndex = 350;
+    this._canvas = L.DomUtil.create('canvas', 'aircraft-canvas', map.getPane('aircraft'));
     map.on('move resize zoomend viewreset', this.redraw, this);
     map.on('zoomstart', this._hide, this);
     this.redraw();
@@ -55,6 +58,8 @@ const CanvasLayer = L.Layer.extend({
         this._canvas.style.width = `${size.x}px`;
         this._canvas.style.height = `${size.y}px`;
       }
+      // The pane moves with the map while dragging; pin the canvas to the viewport.
+      L.DomUtil.setPosition(this._canvas, this._map.containerPointToLayerPoint([0, 0]));
       const g = this._canvas.getContext('2d');
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.clearRect(0, 0, size.x, size.y);

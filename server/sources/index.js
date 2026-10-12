@@ -4,5 +4,6 @@
 // then add a matching layer in public/js/layers/.
 import aircraft from './aircraft.js';
 import earthquakes from './earthquakes.js';
+import satellites from './satellites.js';
 
-export const sources = [earthquakes, aircraft];
+export const sources = [earthquakes, aircraft, satellites];

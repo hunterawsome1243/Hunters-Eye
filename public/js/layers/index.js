@@ -15,5 +15,6 @@
 // To add a layer, write a module like these and add it to the list.
 import aircraft from './aircraft.js';
 import earthquakes from './earthquakes.js';
+import satellites from './satellites.js';
 
-export const layerModules = [earthquakes, aircraft];
+export const layerModules = [earthquakes, aircraft, satellites];

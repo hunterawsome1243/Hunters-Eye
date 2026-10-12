@@ -51,7 +51,33 @@ function opensky(req) {
   return { time: t, states };
 }
 
+// Builds a valid TLE pair with today's epoch, so SGP4 propagates it accurately.
+function tle(name, num, intl, inc, raan, ecc, argp, ma, mm) {
+  const d = new Date();
+  const start = Date.UTC(d.getUTCFullYear(), 0, 1);
+  const day = (d - start) / 86_400_000 + 1;
+  const epoch = `${String(d.getUTCFullYear() % 100).padStart(2, '0')}${day.toFixed(8).padStart(12, '0')}`;
+  const f = (n, w, p) => n.toFixed(p).padStart(w);
+  const sum = (l) => [...l].reduce((a, c) => a + (c === '-' ? 1 : /\d/.test(c) ? Number(c) : 0), 0) % 10;
+  const l1 = `1 ${num}U ${intl.padEnd(8)} ${epoch}  .00010000  00000-0  18000-3 0  999`;
+  const l2 = `2 ${num} ${f(inc, 8, 4)} ${f(raan, 8, 4)} ${String(ecc).padStart(7, '0')} ${f(argp, 8, 4)} ${f(ma, 8, 4)} ${f(mm, 11, 8)}12345`;
+  return `${name}\n${l1}${sum(l1)}\n${l2}${sum(l2)}\n`;
+}
+
+function celestrak(req) {
+  const group = new URL(req.url, 'http://x').searchParams.get('GROUP');
+  if (group === 'STATIONS') {
+    return tle('ISS (ZARYA)', '25544', '98067A', 51.64, 247.46, '0006703', 130.5, 325.0, 15.4981)
+      + tle('CSS (TIANHE)', '48274', '21035A', 41.47, 120.0, '0005000', 300.0, 60.0, 15.6);
+  }
+  return tle('HST', '20580', '90037B', 28.47, 100.0, '0002500', 90.0, 270.0, 15.14)
+    + tle('NOAA 19', '33591', '09005A', 99.19, 40.0, '0013000', 200.0, 160.0, 14.13)
+    + tle('ENVISAT', '27386', '02009A', 98.2, 10.0, '0001000', 80.0, 280.0, 14.38)
+    + tle('SL-16 R/B', '22285', '92093B', 71.0, 300.0, '0008000', 10.0, 350.0, 14.15);
+}
+
 export const routes = {
+  '/celestrak': celestrak,
   '/usgs': usgs,
   '/opensky/states/all': opensky,
 };
@@ -64,7 +90,11 @@ export function startFakeUpstream(port = 0) {
       res.writeHead(404).end('not found');
       return;
     }
-    const body = handler(req);
+    let body = handler(req);
+    if (body && body.status) {
+      res.writeHead(body.status, { 'Content-Type': 'text/plain' }).end(body.body);
+      return;
+    }
     const isText = typeof body === 'string';
     res.writeHead(200, { 'Content-Type': isText ? 'text/plain' : 'application/json' });
     res.end(isText ? body : JSON.stringify(body));

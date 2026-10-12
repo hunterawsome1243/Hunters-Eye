@@ -113,8 +113,10 @@ async function loadSource(s) {
 }
 
 async function tick() {
+  let delay = STATUS_POLL_MS;
   try {
     const { sources } = await getJson('/api/status');
+    if (sources.some((s) => s.loading)) delay = 1000; // first load: pick data up as soon as it lands
     sources.forEach(noteHealth);
     for (const s of sources) byId.get(s.id)?.onStatus?.(s);
     await Promise.all(sources.map(loadSource));
@@ -122,7 +124,7 @@ async function tick() {
   } catch {
     summary.setServerDown();
   } finally {
-    setTimeout(tick, STATUS_POLL_MS);
+    setTimeout(tick, delay);
   }
 }
 
