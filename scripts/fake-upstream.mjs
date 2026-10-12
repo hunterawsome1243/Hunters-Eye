@@ -76,7 +76,47 @@ function celestrak(req) {
     + tle('SL-16 R/B', '22285', '92093B', 71.0, 300.0, '0008000', 10.0, 350.0, 14.15);
 }
 
+function nws() {
+  const t = now();
+  const iso = (ms) => new Date(ms).toISOString();
+  const zone = (type, id) => `https://api.weather.gov/zones/${type}/${id}`;
+  const alert = (id, event, severity, areaDesc, geometry, zones, agoMin) => ({
+    id: `https://api.weather.gov/alerts/${id}`,
+    type: 'Feature',
+    geometry,
+    properties: {
+      id, event, severity, areaDesc, certainty: 'Likely', urgency: 'Expected', senderName: 'NWS Test Office',
+      headline: `${event} issued for ${areaDesc}`, sent: iso(t - agoMin * 60e3), effective: iso(t - agoMin * 60e3),
+      expires: iso(t + 3 * 3600e3), description: `* WHAT...${event}.\n\n* WHERE...${areaDesc}.`, instruction: 'Stay alert.',
+      affectedZones: zones,
+    },
+  });
+  return {
+    type: 'FeatureCollection',
+    updated: iso(t),
+    features: [
+      alert('urn:fake:1', 'Tornado Warning', 'Extreme', 'Oklahoma County, OK', {
+        type: 'Polygon', coordinates: [[[-97.7, 35.3], [-97.2, 35.3], [-97.2, 35.7], [-97.7, 35.7], [-97.7, 35.3]]],
+      }, [zone('county', 'OKC109')], 5),
+      alert('urn:fake:2', 'Excessive Heat Warning', 'Severe', 'Maricopa; Pinal', null, [zone('forecast', 'AZZ537'), zone('forecast', 'AZZ553')], 90),
+      alert('urn:fake:3', 'Winter Storm Watch', 'Moderate', 'Northern Cascades', null, [zone('forecast', 'WAZ567')], 240),
+      alert('urn:fake:4', 'Small Craft Advisory', 'Minor', 'Coastal waters', null, [zone('marine', 'PZZ999')], 30),
+    ],
+  };
+}
+
+const ZONE_BOXES = { AZZ537: [-113, 33, -111.6, 34], AZZ553: [-111.6, 32.5, -110.5, 33.4], WAZ567: [-121.8, 48, -120.5, 49], OKC109: [-97.7, 35.3, -97.1, 35.7] };
+
+function nwsZone(req) {
+  const id = new URL(req.url, 'http://x').pathname.split('/').pop();
+  const b = ZONE_BOXES[id];
+  if (!b) return { status: 404, body: 'zone not found' };
+  return { type: 'Feature', id, geometry: { type: 'Polygon', coordinates: [[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]]] }, properties: { id } };
+}
+
 export const routes = {
+  '/nws': nws,
+  '/zones': nwsZone,
   '/celestrak': celestrak,
   '/usgs': usgs,
   '/opensky/states/all': opensky,
@@ -85,7 +125,8 @@ export const routes = {
 export function startFakeUpstream(port = 0) {
   const server = http.createServer((req, res) => {
     const path = new URL(req.url, 'http://x').pathname;
-    const handler = routes[path];
+    const key = Object.keys(routes).find((k) => path === k || path.startsWith(`${k}/`));
+    const handler = routes[key];
     if (!handler) {
       res.writeHead(404).end('not found');
       return;

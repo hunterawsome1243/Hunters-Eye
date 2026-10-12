@@ -5,5 +5,6 @@
 import aircraft from './aircraft.js';
 import earthquakes from './earthquakes.js';
 import satellites from './satellites.js';
+import weather from './weather.js';
 
-export const sources = [earthquakes, aircraft, satellites];
+export const sources = [earthquakes, aircraft, satellites, weather];

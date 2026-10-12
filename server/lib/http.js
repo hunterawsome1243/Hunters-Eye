@@ -25,7 +25,8 @@ export async function request(url, { headers = {}, timeoutMs = 20000, ...opts } 
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
-    const reason = err.name === 'TimeoutError' ? `timed out after ${timeoutMs / 1000}s` : err.cause?.code || err.message;
+    const cause = err.cause?.errors?.[0] ?? err.cause;
+    const reason = err.name === 'TimeoutError' ? `timed out after ${timeoutMs / 1000}s` : cause?.code || cause?.message || err.message;
     throw new HttpError(0, `${new URL(url).host}: ${reason}`);
   }
   if (!res.ok) {

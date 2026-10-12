@@ -23,7 +23,8 @@ if (fake) {
     OPENSKY_URL: `${base}/opensky`,
     CELESTRAK_URL: `${base}/celestrak`,
     NWS_URL: `${base}/nws`,
-    SATELLITE_CACHE_DIR: '',
+    NWS_ZONE_BASE: base,
+    CACHE_DIR: '',
     AIRCRAFT_INTERVAL_SEC: '3',
   });
 }
@@ -69,10 +70,10 @@ try {
   }
   await page.waitForTimeout(6000); // let the browser pick up the data
   for (const s of status.sources) {
-    const chip = await page.evaluate((name) => {
-      const c = [...document.querySelectorAll('.chip')].find((x) => x.querySelector('.name').textContent === name);
-      return { count: c.querySelector('.count').textContent, title: c.title };
-    }, s.name);
+    const chip = await page.evaluate((id) => {
+      const c = document.querySelector(`.chip[data-id="${id}"]`);
+      return c ? { count: c.querySelector('.count').textContent } : { count: 'no chip' };
+    }, s.id);
     check(`${s.name}: source loaded`, !!s.updatedAt && !s.error, s.error || `${s.count} items upstream, ${chip.count} shown`);
   }
   check('layers present', layerIds.length === status.sources.length, layerIds.join(', '));

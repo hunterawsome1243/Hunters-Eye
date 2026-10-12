@@ -10,7 +10,7 @@ import { HttpError, getText } from '../lib/http.js';
 // repeat download before the next update with HTTP 403. So each group is cached
 // on disk and re-downloaded only when it is over 2 hours old, also across restarts.
 const BASE = process.env.CELESTRAK_URL || 'https://celestrak.org/NORAD/elements/gp.php';
-const CACHE_DIR = process.env.SATELLITE_CACHE_DIR ?? fileURLToPath(new URL('../../data/cache', import.meta.url));
+const CACHE_DIR = process.env.CACHE_DIR ?? fileURLToPath(new URL('../../data/cache', import.meta.url));
 const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 // Space stations (ISS, Tiangong and visiting craft) plus the ~150 brightest objects.

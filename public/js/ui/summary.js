@@ -12,7 +12,7 @@ export function createSummary(root, layers, { onToggle }) {
     const dot = el('span', { class: 'dot loading' });
     const count = el('span', { class: 'count' }, '…');
     const ago = el('span', { class: 'ago' }, 'loading');
-    const chip = el('label', { class: 'chip' },
+    const chip = el('label', { class: 'chip', 'data-id': layer.id },
       input,
       el('span', { class: 'swatch', style: `background:${layer.color}` }),
       el('span', { class: 'name' }, layer.name),
@@ -45,7 +45,7 @@ export function createSummary(root, layers, { onToggle }) {
       const st = state(s);
       c.dot.className = `dot ${st}`;
       c.chip.classList.toggle('error', st === 'error');
-      c.count.textContent = s?.updatedAt ? num(layer.count()) : '…';
+      c.count.textContent = s?.updatedAt ? num(layer.count()) : s?.error || serverDown ? '–' : '…';
       if (serverDown) c.ago.textContent = 'server offline';
       else if (!s || s.loading) c.ago.textContent = 'loading';
       else if (s.error && !s.updatedAt) c.ago.textContent = 'failed';

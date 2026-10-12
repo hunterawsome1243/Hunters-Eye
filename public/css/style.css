@@ -67,6 +67,7 @@ body.sidebar-open .sidebar { transform: none; }
 .filter input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
 .filter input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .filter .hint { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.filter select { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
 .filter output { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
 
 .feed { list-style: none; margin: 0 -14px; padding: 0; overflow-y: auto; flex: 1; }
@@ -112,6 +113,6 @@ body.sidebar-open .sidebar { transform: none; }
   body.sidebar-open .map { left: 0; }
   .sidebar { box-shadow: 8px 0 24px rgba(0, 0, 0, .4); }
   .brand { font-size: 0; gap: 0; }
-  .chip .meta .ago { display: none; }
+  .chip:not(.error) .meta .ago { display: none; }
   .detail { top: auto; bottom: 12px; max-height: 55%; }
 }

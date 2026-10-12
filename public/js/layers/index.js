@@ -16,5 +16,6 @@
 import aircraft from './aircraft.js';
 import earthquakes from './earthquakes.js';
 import satellites from './satellites.js';
+import weather from './weather.js';
 
-export const layerModules = [earthquakes, aircraft, satellites];
+export const layerModules = [earthquakes, aircraft, satellites, weather];
