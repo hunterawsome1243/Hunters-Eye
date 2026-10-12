@@ -72,6 +72,17 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 
 `.env` is in `.gitignore`; never commit real credentials.
 
+## Deploy on Render
+
+The repo includes a `render.yaml` Blueprint. In the Render dashboard choose **New > Blueprint**, pick this repository, and fill in the two OpenSky values when asked. On Render the server listens on `0.0.0.0:$PORT` automatically, and `/healthz` serves health checks without waking the feeds.
+
+Things that work differently on a hosted server:
+
+- **Add an OpenSky API client.** Anonymous OpenSky credits are counted per IP address, and Render's outbound addresses are shared with other customers, so anonymous aircraft requests may run out of credits or be refused.
+- **Satellites may fail to load after a restart.** The free plan wipes the disk on every restart and spin-down, so the CelesTrak cache is lost. If anyone on the same outbound address downloaded the same group in the last 2 hours, CelesTrak answers 403 and the satellite layer stays red until its next try (30 minutes later). A paid instance with a persistent disk set as `CACHE_DIR` avoids this.
+- **Free instances sleep.** After 15 minutes with no visitors the service spins down. The first visit afterwards takes about a minute, then each feed loads on its first refresh.
+- **Everyone shares one server.** All visitors see the same cache, and the "only aircraft in current view" box is shared too: the last visitor to move the map with the filter on decides the area for everyone.
+
 ## Testing
 
 ```bash

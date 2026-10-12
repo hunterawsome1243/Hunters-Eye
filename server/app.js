@@ -13,6 +13,10 @@ export function createApp(sources, pollerOptions) {
   app.use('/vendor/leaflet', express.static(root('node_modules/leaflet/dist')));
   app.use('/vendor/satellite.js', express.static(root('node_modules/satellite.js/dist')));
 
+  // For a host's health checks. Unlike /api/status it doesn't count as a viewer,
+  // so it never keeps the upstream feeds polling on its own.
+  app.get('/healthz', (req, res) => res.json({ ok: true }));
+
   // One cheap call the browser makes every few seconds: health, counts and versions
   // of every source. The browser fetches a source's data only when its version moves.
   app.get('/api/status', (req, res) => {
