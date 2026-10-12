@@ -76,12 +76,12 @@ button { font: inherit; color: inherit; }
 
 /* Shared interactive behaviour: every control answers hover, press and keyboard focus.
    Hover lifts the surface one step, pressing lifts it one more; nothing moves or recolours. */
-.icon-btn, .chip, .feed button, .filter select, .filter input, .detail-extra a,
+.icon-btn, .chip, .chip-toggle, .chip-health, .feed button, .filter select, .filter input, .detail-extra a,
 .leaflet-container .leaflet-bar a {
   transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
-.icon-btn:focus-visible, .chip:has(input:focus-visible), .filter select:focus-visible, .filter input:focus-visible,
+.icon-btn:focus-visible, .filter select:focus-visible, .filter input:focus-visible,
 .detail-extra a:focus-visible {
   outline: none; box-shadow: var(--ring);
 }
@@ -102,28 +102,59 @@ button { font: inherit; color: inherit; }
 .icon-btn:active { color: var(--text); background: var(--panel-3); border-color: var(--border-strong); }
 .icon-btn[aria-expanded="true"] { color: var(--text); }
 
-/* Layer chips: filled when the layer is on, outlined when it's off.
-   The strip scrolls, so it keeps a 4px gutter for the focus ring to draw into. */
+/* Layer chips: the count leads, the name labels it, the swatch carries the layer colour
+   with a health ring, and the freshness text is a button that opens the status popover.
+   Filled when the layer is on, outlined when it's off. The strip scrolls on narrow
+   screens and fades the edge where more chips are hiding; it keeps a 4px gutter for
+   the focus ring. */
 .summary { display: flex; gap: var(--space-2); overflow-x: auto; flex: 1; scrollbar-width: none;
   padding: var(--space-1); margin: 0 calc(-1 * var(--space-1)); scroll-padding-inline: var(--space-1); }
 .summary::-webkit-scrollbar { display: none; }
-.chip { position: relative; display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
+.summary.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.summary.more-left { mask-image: linear-gradient(to right, transparent, #000 28px); -webkit-mask-image: linear-gradient(to right, transparent, #000 28px); }
+.summary.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+.chip { position: relative; display: flex; align-items: stretch; flex: none;
   border-radius: var(--radius-md); background: var(--panel-2); border: 1px solid var(--border-strong);
-  cursor: pointer; user-select: none; white-space: nowrap; }
+  user-select: none; white-space: nowrap; }
 .chip:hover { background: var(--panel-3); border-color: var(--border-hover); }
-.chip:active { background: var(--panel-4); border-color: var(--border-hover); }
-/* The real checkbox covers the chip invisibly, so focusing it scrolls the whole chip into view. */
+.chip-toggle { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); cursor: pointer;
+  border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.chip-toggle:active { background: var(--panel-4); }
+/* The real checkbox covers its label invisibly, so focusing it scrolls the chip into view. */
 .chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
-.chip .swatch { width: 10px; height: 10px; border-radius: var(--radius-xs); flex: none; background: var(--c); }
-.chip .name { font-weight: 600; }
-.chip .count { font-variant-numeric: tabular-nums; }
-.chip .meta { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 5px; }
+.chip:has(input:focus-visible) { box-shadow: var(--ring); }
+.chip .swatch { width: 10px; height: 10px; border-radius: var(--radius-xs); flex: none; background: var(--c);
+  box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--muted); transition: box-shadow var(--dur-base) var(--ease); }
+.chip:hover .swatch { box-shadow: 0 0 0 2px var(--panel-3), 0 0 0 3.5px var(--muted); }
+.chip[data-health="ok"] .swatch { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--ok); }
+.chip[data-health="ok"]:hover .swatch { box-shadow: 0 0 0 2px var(--panel-3), 0 0 0 3.5px var(--ok); }
+.chip[data-health="stale"] .swatch { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--warn); }
+.chip[data-health="error"] .swatch { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--bad); }
+.chip[data-health="loading"] .swatch { animation: pulse 1.2s infinite; }
+.chip .count { font-weight: 600; font-variant-numeric: tabular-nums; }
+.chip .name { color: var(--text-2); }
+.chip-health { all: unset; box-sizing: border-box; display: flex; align-items: center; padding: 0 var(--space-2) 0 var(--space-1);
+  color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; cursor: pointer;
+  border-left: 1px solid transparent; border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.chip-health:hover { color: var(--text); background: var(--panel-4); border-left-color: var(--border-strong); }
+.chip-health:focus-visible { box-shadow: var(--ring-inset); }
+.chip-health[aria-expanded="true"] { color: var(--text); background: var(--panel-4); }
 .chip.off { background: transparent; border-color: var(--border-strong); color: var(--muted); }
 .chip.off:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--border-hover); }
-.chip.off:active { background: var(--panel-2); }
-.chip.off .swatch { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
-.chip.error, .chip.error:hover, .chip.error:active { border-color: var(--bad-border); }
+.chip.off .name { color: var(--muted); }
+/* Off wins over the health ring, hovered or not: an off layer has nothing live to report. */
+.chip.off[data-health] .swatch, .chip.off[data-health]:hover .swatch { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+.chip.error, .chip.error:hover { border-color: var(--bad-border); }
+.chip.error .chip-health { color: var(--bad); }
+
+/* Popover with a feed's full status, under the chip that opened it */
+.popover { position: fixed; z-index: 1100; min-width: 220px; max-width: min(360px, calc(100vw - 16px)); padding: var(--space-2) var(--space-3);
+  background: var(--glass-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-3);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: var(--text-md); color: var(--text-2); line-height: 1.5; }
+.popover-title { color: var(--text); font-weight: 600; margin-bottom: 2px; }
+
+/* Health dots (the status pill and the banner) */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none;
   transition: background-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease); }
 .dot.ok { background: var(--ok); box-shadow: var(--glow-ok); }
@@ -255,7 +286,14 @@ body.sidebar-open .sidebar { transform: none; }
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {
   .brand { font-size: 0; gap: 0; }
-  .chip:not(.error) .meta .ago { display: none; }
+  /* The health button keeps a tappable dot once its text is gone. */
+  .chip-health .ago { display: none; }
+  .chip-health { min-width: 28px; justify-content: center; padding: 0 var(--space-2); }
+  .chip-health::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .chip[data-health="ok"] .chip-health::before { background: var(--ok); }
+  .chip[data-health="stale"] .chip-health::before { background: var(--warn); }
+  .chip[data-health="error"] .chip-health::before { background: var(--bad); }
+  .chip[data-health="loading"] .chip-health::before { animation: pulse 1.2s infinite; }
   .status .since { display: none; }
 }
 
