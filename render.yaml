@@ -1,0 +1,20 @@
+# Render Blueprint: New > Blueprint in the Render dashboard, pick this repo.
+services:
+  - type: web
+    name: hunters-eye
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: USER_AGENT
+        value: HuntersEye/0.1 (+https://github.com/hunterawsome1243/Hunters-Eye)
+      # Strongly recommended on Render: anonymous OpenSky credits are counted per IP,
+      # and Render's outbound IPs are shared with other services.
+      - key: OPENSKY_CLIENT_ID
+        sync: false
+      - key: OPENSKY_CLIENT_SECRET
+        sync: false

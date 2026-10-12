@@ -1,0 +1,70 @@
+import express from 'express';
+import { fileURLToPath } from 'node:url';
+import { SourcePoller } from './lib/poller.js';
+
+const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
+
+// OpenFreeMap's dark style: free with no key or sign-up. CARTO's basemaps, used
+// before, began requiring an API key in 2026.
+const DEFAULT_BASEMAP = 'https://tiles.openfreemap.org/styles/dark';
+
+export function createApp(sources, pollerOptions, {
+  browserFallback = process.env.BROWSER_FALLBACK !== 'off',
+  basemapStyle = process.env.BASEMAP_STYLE || DEFAULT_BASEMAP,
+} = {}) {
+  const pollers = new Map(sources.map((s) => [s.id, new SourcePoller(s, pollerOptions)]));
+  const app = express();
+  app.disable('x-powered-by');
+
+  app.use(express.static(root('public')));
+  app.use('/vendor/leaflet', express.static(root('node_modules/leaflet/dist')));
+  app.use('/vendor/satellite.js', express.static(root('node_modules/satellite.js/dist')));
+  app.use('/vendor/maplibre-gl', express.static(root('node_modules/maplibre-gl/dist')));
+  app.use('/vendor/maplibre-gl-leaflet', express.static(root('node_modules/@maplibre/maplibre-gl-leaflet/dist')));
+  app.use('/shared', express.static(root('shared')));
+
+  // For a host's health checks. Unlike /api/status it doesn't count as a viewer,
+  // so it never keeps the upstream feeds polling on its own.
+  app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  // Read once by the browser. `basemap` is the MapLibre style for the map underneath
+  // the layers. `fallback` lists the sources the browser may fetch itself, and from
+  // where, while this server can't reach them (public/js/fallback.js).
+  app.get('/api/config', (req, res) => {
+    const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
+    res.json({ basemap: basemapStyle, fallback: Object.fromEntries(fallback) });
+  });
+
+  // One cheap call the browser makes every few seconds: health, counts and versions
+  // of every source. The browser fetches a source's data only when its version moves.
+  app.get('/api/status', (req, res) => {
+    for (const p of pollers.values()) p.touch();
+    res.set('Cache-Control', 'no-store');
+    res.json({ serverTime: Date.now(), sources: [...pollers.values()].map((p) => p.status()) });
+  });
+
+  app.get('/api/sources/:id', (req, res) => {
+    const poller = pollers.get(req.params.id);
+    if (!poller) return res.status(404).json({ error: `Unknown source "${req.params.id}"` });
+    poller.touch();
+    res.set('Cache-Control', 'no-store');
+    res.json({ status: poller.status(), data: poller.data });
+  });
+
+  // Lets the browser adjust what a source fetches, e.g. the aircraft bounding box.
+  app.put('/api/sources/:id/options', express.json({ limit: '4kb' }), (req, res) => {
+    const poller = pollers.get(req.params.id);
+    if (!poller?.source.setOptions) return res.status(404).json({ error: `Source "${req.params.id}" has no options` });
+    try {
+      poller.source.setOptions(req.body ?? {});
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    poller.touch();
+    res.json({ status: poller.status() });
+  });
+
+  app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
+  return { app, pollers };
+}

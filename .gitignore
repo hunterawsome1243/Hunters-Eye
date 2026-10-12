@@ -1,0 +1,7 @@
+node_modules/
+.env
+data/cache/
+*.log
+docs/screenshot-fake.png
+docs/screenshot-server-blocked.png
+docs/screenshot-browser-blocked.png
