@@ -58,5 +58,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true } = {}) {
       if (entries.delete(id)) refresh();
     },
     refresh,
+    // The entries a reader currently sees, newest first (for the situation brief).
+    visible: (limit = DISPLAY_LIMIT) => [...entries.values()].filter((e) => e.system || isVisible(e)).sort((a, b) => b.time - a.time).slice(0, limit),
   };
 }

@@ -5,3 +5,4 @@ data/cache/
 docs/screenshot-fake.png
 docs/screenshot-server-blocked.png
 docs/screenshot-browser-blocked.png
+.claude/worktrees/

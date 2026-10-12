@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { SourcePoller } from './lib/poller.js';
+import { createBriefRoute } from './brief.js';
 
 const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 
@@ -28,6 +29,7 @@ export function createApp(sources, pollerOptions, {
   browserFallback = process.env.BROWSER_FALLBACK !== 'off',
   basemapStyle = process.env.BASEMAP_STYLE || DEFAULT_BASEMAP,
   imagery = imageryConfig(),
+  brief = createBriefRoute(),
 } = {}) {
   const pollers = new Map(sources.map((s) => [s.id, new SourcePoller(s, pollerOptions)]));
   const app = express();
@@ -45,11 +47,16 @@ export function createApp(sources, pollerOptions, {
   // Read once by the browser. `basemap` is the MapLibre style for the globe's
   // vector map, `imagery` the raster tiles drawn under it from space (null = none).
   // `fallback` lists the sources the browser may fetch itself, and from where,
-  // while this server can't reach them (public/js/fallback.js).
+  // while this server can't reach them (public/js/fallback.js). `brief` says
+  // whether the "Brief me" button should exist (server/brief.js).
   app.get('/api/config', (req, res) => {
     const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
-    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback) });
+    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null });
   });
+
+  // A Claude-written situation brief of what the dashboard shows, on demand.
+  // The key stays on this server; see server/brief.js for the cost and throttle.
+  app.post('/api/brief', express.json({ limit: brief.bodyLimit }), brief.handler);
 
   // One cheap call the browser makes every few seconds: health, counts and versions
   // of every source. The browser fetches a source's data only when its version moves.

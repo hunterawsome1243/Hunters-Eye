@@ -250,6 +250,21 @@ body.sidebar-open .sidebar { transform: none; }
 .map-unsupported { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
   color: var(--text-2); padding: var(--space-4); }
 
+/* Situation brief (shown only when the server has an API key) */
+.brief-row { display: flex; align-items: center; gap: var(--space-3); }
+.brief-hint { font-size: var(--text-xs); line-height: 1.35; }
+.brief-btn { flex: none; padding: var(--space-1) var(--space-3); background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.brief-btn:hover { background: var(--panel-3); }
+.brief-btn:active { background: var(--panel-4); }
+.brief-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.brief-btn:disabled { opacity: 0.6; cursor: progress; }
+.brief-text { margin: var(--space-2) 0 0; white-space: pre-line; font-size: var(--text-sm); color: var(--text); }
+.brief-text:empty { display: none; }
+.brief-text.error { color: var(--bad); }
+.brief-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
+
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {
   .chip:not(.error) .meta .ago { display: none; }

@@ -1,6 +1,7 @@
 import { getJson } from './api.js';
 import { createFallbacks } from './fallback.js';
 import { createGlobe } from './globe.js';
+import { createBrief } from './ui/brief.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
@@ -123,6 +124,23 @@ function setLayerVisible(layer, on) {
 const summary = createSummary(document.getElementById('summary'), layers, { onToggle: setLayerVisible });
 const liveStatus = createStatus(document.getElementById('status'), document.getElementById('banner'));
 
+// What the "Brief me" button sends: counts, feed health and the latest events a
+// reader can see, never the raw data. Shown only when the server has a key.
+const brief = createBrief(document.getElementById('brief'), {
+  snapshot: () => ({
+    now: new Date().toISOString(),
+    zoom: map ? Math.round(map.getZoom() * 10) / 10 : null,
+    view: globe?.viewBounds() ?? null,
+    layers: layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, count: l.count() })),
+    feeds: lastSources.map((s) => fallbacks.status(s)).map((s) => ({
+      id: s.id,
+      state: s.error ? 'failing' : s.updatedAt ? (s.via === 'browser' ? 'ok via browser' : 'ok') : 'loading',
+      detail: s.error || s.note || '',
+    })),
+    events: feed.visible(40).map((e) => ({ source: e.source, time: new Date(e.time).toISOString(), title: e.title, subtitle: e.subtitle })),
+  }),
+});
+
 // Health changes become feed entries, so a failing feed is visible in the history too.
 const health = new Map();
 function noteHealth(s) {
@@ -195,11 +213,13 @@ window.__huntersEye = {
   layers,
   selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false,
   spin: (on) => globe?.spin.set(on),
+  brief,
 };
 
 getJson('/api/config')
-  .then(({ basemap, imagery, fallback }) => {
+  .then(({ basemap, imagery, fallback, brief: briefConfig }) => {
     if (basemap) globe?.loadBasemap(basemap, imagery);
+    brief.configure(briefConfig);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => lastSources.length && showStatus(),
