@@ -76,13 +76,14 @@ export function imagerySource(imagery) {
 }
 
 // Full-strength imagery from space until z9.5, gone by z12, where the vector
-// map's roads, water, parks and labels have taken over.
-export function imageryLayer(maxzoom = 12) {
+// map's roads, water, parks and labels have taken over. The layer ends at z12
+// whatever the source offers, so no invisible tile is ever requested.
+export function imageryLayer() {
   return {
     id: IMAGERY_LAYER,
     type: 'raster',
     source: IMAGERY_SOURCE,
-    maxzoom: Math.max(12, maxzoom),
+    maxzoom: 12,
     paint: {
       'raster-opacity': ['interpolate', ['linear'], ['zoom'], 9.5, 1, 12, 0],
       'raster-fade-duration': 0,
@@ -150,7 +151,7 @@ export function buildStyle(base, { imagery } = {}) {
 
   if (imagery?.tiles) {
     style.sources[IMAGERY_SOURCE] = imagerySource(imagery);
-    style.layers.splice(imageryIndex(style.layers), 0, imageryLayer(imagery.maxzoom));
+    style.layers.splice(imageryIndex(style.layers), 0, imageryLayer());
   }
 
   if (style.sources.openmaptiles && !style.layers.some((l) => l.type === 'fill-extrusion')) {

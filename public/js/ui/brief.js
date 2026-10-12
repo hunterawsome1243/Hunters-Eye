@@ -8,10 +8,10 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
   const button = el('button', { type: 'button', class: 'brief-btn' }, 'Brief me');
   const meta = el('div', { class: 'brief-meta muted' });
   const output = el('p', { class: 'brief-text' });
-  const body = el('div', { class: 'brief-body' }, output, meta);
+  const body = el('div', { class: 'brief-body', role: 'status', 'aria-live': 'polite' }, output, meta);
   root.append(
     el('h2', {}, 'Situation brief ', el('span', { class: 'muted' }, 'by Claude')),
-    el('div', { class: 'brief-row' }, button, el('span', { class: 'brief-hint muted' }, 'A short read of what is on the globe right now.')),
+    el('div', { class: 'brief-row' }, button, el('span', { class: 'brief-hint muted' }, 'A short read of what is on the globe right now. About a thirtieth of a cent per press.')),
     body,
   );
   root.hidden = true;
@@ -20,7 +20,7 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
   async function run() {
     if (busy) return;
     busy = true;
-    button.disabled = true;
+    button.setAttribute('aria-busy', 'true'); // stays enabled so keyboard focus is kept
     button.textContent = 'Writing…';
     output.classList.remove('error');
     try {
@@ -32,7 +32,7 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       output.textContent = data.text;
-      const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : '';
+      const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : ' · cost not known for this model';
       meta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
     } catch (err) {
       output.textContent = err.message;
@@ -40,7 +40,7 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
       meta.textContent = '';
     } finally {
       busy = false;
-      button.disabled = false;
+      button.removeAttribute('aria-busy');
       button.textContent = 'Brief me';
     }
   }

@@ -34,6 +34,9 @@ test('imagery goes above the opening run of fills and below the first line', () 
   assert.equal(order[order.indexOf('he-imagery') + 1], 'waterway');
   assert.equal(style.sources['he-imagery'].tiles[0], IMAGERY.eox2017.tiles);
   assert.equal(style.sources['he-imagery'].maxzoom, 12);
+  const deep = buildStyle(dark(), { imagery: { ...IMAGERY.eox2017, maxzoom: 18 } });
+  assert.equal(deep.sources['he-imagery'].maxzoom, 18);
+  assert.equal(deep.layers.find((l) => l.id === 'he-imagery').maxzoom, 12);
   assert.equal(style.layers.find((l) => l.id === 'he-imagery').source, 'he-imagery');
 });
 

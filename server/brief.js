@@ -13,7 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
 const PRICE = { 'claude-haiku-5-5': { input: 0.1, output: 0.5 } }; // USD per million tokens
 const MAX_EVENTS = 40;
-const MAX_BODY = '24kb';
+const MAX_BODY = '128kb'; // the sanitiser below is the real bound
 
 const SYSTEM = `You write the situation brief for "Hunter's Eye", a public dashboard that shows live earthquakes (USGS), aircraft positions (OpenSky Network), satellites (CelesTrak orbital elements) and US severe weather alerts (National Weather Service) on a 3D globe.
 You get a JSON snapshot of what the dashboard currently shows. Write what an analyst would say out loud to a colleague who just walked in: the few things that matter, in plain English.
@@ -70,7 +70,8 @@ export function sdkAsk({ apiKey, model, timeoutMs = 30_000 }) {
   return async (snapshot) => {
     const response = await client.messages.create({
       model,
-      max_tokens: 400,
+      max_tokens: 1024, // room for the brief; thinking is off so none is spent reasoning
+      thinking: { type: 'disabled' },
       system: SYSTEM,
       messages: [{ role: 'user', content: `Snapshot:\n${JSON.stringify(snapshot)}` }],
     });
@@ -97,8 +98,9 @@ export function createBriefRoute({ apiKey = process.env.ANTHROPIC_API_KEY, model
       return res.status(400).json({ error: err.message });
     }
     try {
-      const { text, usage } = await run(snapshot);
+      const { text, usage, stopReason } = await run(snapshot);
       if (!text) return res.status(502).json({ error: 'Claude returned an empty brief.' });
+      if (stopReason === 'max_tokens') console.warn('[brief] reply hit max_tokens; it may be cut short');
       res.json({ text, model, usage, costUsd: estimateCost(model, usage), at: Date.now() });
     } catch (err) {
       const status = err?.status === 429 ? 429 : err?.status === 401 ? 502 : 502;

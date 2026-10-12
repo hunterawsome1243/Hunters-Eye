@@ -64,7 +64,7 @@ export function createSpin(map, { phone = false, isBlocked = () => false } = {})
     map.on(ev, () => {
       interacting = true;
       clearTimeout(timer);
-      map.stop();
+      if (spinning) map.stop(); // only the spin's own ease; MapLibre's handlers stay intact
       if (phone && enabled) {
         enabled = false; // a phone spins again only when its control is pressed
         changed();
@@ -73,7 +73,12 @@ export function createSpin(map, { phone = false, isBlocked = () => false } = {})
   }
   map.getCanvas().addEventListener('keydown', () => {
     interacting = true;
-    map.stop();
+    clearTimeout(timer);
+    if (spinning) map.stop();
+  });
+  map.getCanvas().addEventListener('keyup', () => {
+    interacting = false;
+    later();
   });
   for (const ev of ['mouseup', 'touchend', 'dragend', 'zoomend', 'pitchend', 'rotateend']) {
     map.on(ev, () => {

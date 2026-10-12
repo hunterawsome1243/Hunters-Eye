@@ -64,7 +64,7 @@ With `ANTHROPIC_API_KEY` set, a **Situation brief** section appears at the top o
 
 - The key lives only on the server (`server/brief.js`); the browser never sees it.
 - A brief is about 1,500 tokens in and 250 out, which is roughly **$0.0003** at Haiku 5.5's prices ($0.10 and $0.50 per million tokens). The response shows the cost of each brief.
-- Because the page may be public, the server allows one brief every 5 seconds and 20 an hour across all visitors, so the worst case is about half a cent an hour. Change `BRIEF_MODEL` to use another model.
+- Because the page may be public, the server allows one brief every 5 seconds and 20 an hour across all visitors, so the worst case with Haiku 5.5 is about half a cent an hour. `BRIEF_MODEL` picks another model; the per-brief cost is then only shown if that model's prices are added to `PRICE` in `server/brief.js`.
 - Without a key the route answers 404 and the section stays hidden.
 
 ## Data sources and limits

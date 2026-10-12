@@ -212,6 +212,7 @@ export default function create(ctx) {
   function focus(icao) {
     const a = byIcao.get(icao);
     if (!a || !api.visible) return;
+    if (selected && selected !== icao) applySelectionState(selected, false);
     selected = icao; // so a close-in subset push includes it
     render(); // the icon sits exactly where the camera lands
     // Select before flying: ctx.select() pauses the spin with map.stop(), which
@@ -237,8 +238,14 @@ export default function create(ctx) {
         onClick: () => focus(a.icao24),
       });
     }
-    if (selected && detail.key === `aircraft:${selected}`) {
-      if (byIcao.has(selected)) showDetail(byIcao.get(selected));
+    if (selected && !byIcao.has(selected)) {
+      // The plane left the data (out of the view box, or dropped by OpenSky).
+      const gone = selected;
+      applySelectionState(gone, false);
+      selected = null;
+      if (detail.key === `aircraft:${gone}`) detail.hide();
+    } else if (selected && detail.key === `aircraft:${selected}`) {
+      showDetail(byIcao.get(selected));
     }
     render();
   }

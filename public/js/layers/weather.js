@@ -136,8 +136,10 @@ export default function create(ctx) {
 
   function update({ alerts, zones }) {
     const seen = new Set(alerts.map((a) => a.id));
+    let changed = false; // only a changed outline set is worth re-tiling
     for (const [id, s] of shapes) {
       if (seen.has(id)) continue;
+      changed = true;
       shapes.delete(id);
       feed.remove(`weather:${id}`);
       if (id === selected) {
@@ -157,6 +159,7 @@ export default function create(ctx) {
         entry.polygons = polygons;
         entry.polygonCount = polygons.length;
         entry.feature = polygons.length ? alertFeature(a, polygons) : null;
+        changed = true;
       }
       shapes.set(a.id, entry);
       if (!existing) {
@@ -172,7 +175,7 @@ export default function create(ctx) {
         });
       }
     }
-    render();
+    if (changed) render();
     if (selected && shapes.has(selected) && detail.key === `weather:${selected}`) showDetail(shapes.get(selected).alert);
   }
 

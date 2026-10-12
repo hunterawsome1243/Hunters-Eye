@@ -135,9 +135,9 @@ const brief = createBrief(document.getElementById('brief'), {
     feeds: lastSources.map((s) => fallbacks.status(s)).map((s) => ({
       id: s.id,
       state: s.error ? 'failing' : s.updatedAt ? (s.via === 'browser' ? 'ok via browser' : 'ok') : 'loading',
-      detail: s.error || s.note || '',
+      detail: String(s.error || s.note || '').slice(0, 160),
     })),
-    events: feed.visible(40).map((e) => ({ source: e.source, time: new Date(e.time).toISOString(), title: e.title, subtitle: e.subtitle })),
+    events: feed.visible(40).map((e) => ({ source: e.source, time: new Date(e.time).toISOString(), title: String(e.title ?? '').slice(0, 160), subtitle: String(e.subtitle ?? '').slice(0, 200) })),
   }),
 });
 

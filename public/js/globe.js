@@ -30,7 +30,7 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     minZoom: 0.8,
     maxZoom: 19,
     maxPitch: phone ? 60 : 70,
-    fadeDuration: 0,
+    fadeDuration: 150, // 0 would force full symbol placement every frame
     pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
     canvasContextAttributes: { antialias: false, powerPreference: 'high-performance' },
     cancelPendingTileRequestsWhileZooming: true,
@@ -60,6 +60,21 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
 
   // The basemap style, fetched here so it can be edited before use. When it can't
   // be fetched the continents style stays, and the data layers are unaffected.
+  // MapLibre never reports a 404 tile, so a retired imagery path would leave the
+  // sphere bare: probe one low-zoom tile after the style loads and fall back.
+  async function probeImagery(imagery) {
+    if (!imagery?.tiles || imagerySwapped) return;
+    const url = imagery.tiles.replace('{z}', '2').replace('{x}', '1').replace('{y}', '1');
+    try {
+      const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+      if (res.status === 404 || res.status === 410) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      if (!/HTTP 4(04|10)/.test(err.message)) return; // network/CORS failures are counted by the error handler
+      console.warn(`Imagery probe failed (${err.message}); switching to NASA Blue Marble`);
+      fallbackImagery();
+    }
+  }
+
   async function loadBasemap(url, imagery) {
     let base;
     try {
@@ -72,6 +87,7 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     }
     styleReady = false;
     map.setStyle(buildStyle(base, { imagery }), { diff: false });
+    map.once('style.load', () => probeImagery(imagery));
   }
 
   // Swap the imagery tiles in place (used for the automatic NASA fallback).
@@ -82,7 +98,7 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     if (map.getLayer(IMAGERY_LAYER)) map.removeLayer(IMAGERY_LAYER);
     if (map.getSource(IMAGERY_SOURCE)) map.removeSource(IMAGERY_SOURCE);
     map.addSource(IMAGERY_SOURCE, imagerySource(imagery));
-    map.addLayer(imageryLayer(imagery.maxzoom), before);
+    map.addLayer(imageryLayer(), before);
   }
 
   // Tile and glyph failures are expected on a free stack: log them quietly, and
@@ -99,18 +115,23 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     imageryFailures = imageryFailures.filter((t) => now - t < 60_000);
     imageryFailures.push(now);
     if (imageryFailures.length < IMAGERY_FAILURES) return;
+    fallbackImagery();
+  });
+
+  function fallbackImagery() {
+    if (imagerySwapped || !map.getSource(IMAGERY_SOURCE)) return;
     imagerySwapped = true;
     swapImagery(IMAGERY.bluemarble);
     feed?.add({
-      id: `system:imagery:${now}`,
+      id: `system:imagery:${Date.now()}`,
       source: 'system',
       system: true,
-      time: now,
+      time: Date.now(),
       color: 'var(--warn)',
       title: 'Imagery switched to NASA Blue Marble',
       subtitle: 'The satellite imagery tiles were not reachable',
     });
-  });
+  }
 
   // --- clicks and hover -------------------------------------------------------
   let interactive = []; // [{ layer, priority, owner }], set by app.js when visibility changes
@@ -181,7 +202,9 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     const b = map.getBounds();
     const c = map.getCenter();
     let lamin = b.getSouth(), lamax = b.getNorth(), lomin = b.getWest(), lomax = b.getEast();
-    if (map.getPitch() > 45) {
+    // With a pole on screen the globe's bounds widen to the whole world; a tilt
+    // balloons the far edge. Both cases fall back to a box around the centre.
+    if (map.getPitch() > 45 || lomax - lomin >= 360) {
       const flat = (360 / 2 ** zoom) * (map.getContainer().clientWidth / 512);
       const cap = 1.5 * flat;
       lomin = Math.max(lomin, c.lng - cap);

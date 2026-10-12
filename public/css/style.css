@@ -230,15 +230,15 @@ body.sidebar-open .sidebar { transform: none; }
 .maplibregl-ctrl-group button:last-child { border-bottom: 0; }
 .maplibregl-ctrl-group button:hover { background: var(--panel-2); color: var(--text); }
 .maplibregl-ctrl-group button:active { background: var(--panel-3); color: var(--text); }
-.maplibregl-ctrl-group button:focus, .maplibregl-ctrl-group button:focus:focus-visible { box-shadow: none; }
-.maplibregl-ctrl-group button:focus-visible { outline: none; box-shadow: var(--ring-inset); }
+.maplibregl-ctrl-group button:focus:not(:focus-visible) { box-shadow: none; }
+.maplibregl-ctrl-group button:focus:focus-visible { outline: none; box-shadow: var(--ring-inset); }
 .maplibregl-ctrl-group button:disabled { color: var(--muted); opacity: 0.45; }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon, .maplibregl-ctrl-attrib-button { filter: invert(0.85) hue-rotate(180deg); }
 .maplibregl-ctrl-group button.he-ctrl-spin { display: grid; place-items: center; }
 .he-ctrl-spin[aria-pressed="true"] { color: var(--accent); }
 .maplibregl-ctrl-attrib { background: var(--glass); color: var(--muted); font-size: var(--text-xs);
   padding: 2px var(--space-2); border-top-left-radius: var(--radius-sm); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.maplibregl-ctrl-attrib.maplibregl-compact { background: var(--glass); }
+.maplibregl-ctrl-attrib.maplibregl-compact { background: var(--glass); color: var(--muted); }
 .maplibregl-ctrl-attrib a { color: var(--text-2); text-decoration: underline;
   text-decoration-color: var(--border-hover); text-underline-offset: 2px; }
 .maplibregl-ctrl-attrib a:hover, .maplibregl-ctrl-attrib a:focus { text-decoration-color: currentColor; }
@@ -259,7 +259,7 @@ body.sidebar-open .sidebar { transform: none; }
 .brief-btn:hover { background: var(--panel-3); }
 .brief-btn:active { background: var(--panel-4); }
 .brief-btn:focus-visible { outline: none; box-shadow: var(--ring); }
-.brief-btn:disabled { opacity: 0.6; cursor: progress; }
+.brief-btn[aria-busy="true"] { opacity: 0.6; cursor: progress; }
 .brief-text { margin: var(--space-2) 0 0; white-space: pre-line; font-size: var(--text-sm); color: var(--text); }
 .brief-text:empty { display: none; }
 .brief-text.error { color: var(--bad); }
