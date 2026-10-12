@@ -1,4 +1,5 @@
 import { dateTime, el, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 
 const COLOR = '#f43f5e';
 const SEVERITY = {
@@ -28,7 +29,7 @@ export default function create(ctx) {
   });
   ctx.addFilter(el('div', { class: 'filter' },
     el('label', {}, 'Weather alerts', picker),
-    el('div', { class: 'hint' }, ...Object.entries(SEVERITY).flatMap(([name, { color }], i) => [i ? ' · ' : '', el('span', { style: `color:${color}` }, name)]))));
+    legend(Object.entries(SEVERITY).map(([name, { color }]) => [color, name]), { shape: 'square', label: 'Alert severity colors' })));
 
   const passes = (a) => (SEVERITY[a.severity] || SEVERITY.Unknown).rank <= maxRank;
   function applyVisibility(s) {

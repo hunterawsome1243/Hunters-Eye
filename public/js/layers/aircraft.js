@@ -1,5 +1,6 @@
 import { putJson } from '../api.js';
 import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 
 const COLOR = '#38bdf8';
 const MAX_EXTRAPOLATE_S = 300;
@@ -12,13 +13,19 @@ const CATEGORY = ['No info', 'No ADS-B category', 'Light', 'Small', 'Large', 'Hi
 // Plane silhouette pointing north, centred on 0,0, about 14px long.
 const PLANE = new Path2D('M0 -7 L1.3 -2.2 L7 1.2 L7 2.4 L1.2 0.9 L0.9 4.6 L2.6 6 L2.6 7 L0 6.2 L-2.6 7 L-2.6 6 L-0.9 4.6 L-1.2 0.9 L-7 2.4 L-7 1.2 L-1.3 -2.2 Z');
 
+// Plane colour by altitude (metres), ground first; also the legend under the filter.
+const GROUND_COLOR = '#6b7280';
+const ALTITUDE_BANDS = [
+  [0, GROUND_COLOR, 'on ground'],
+  [3000, '#5eead4', 'below 3 km'],
+  [7000, '#38bdf8', '3–7 km'],
+  [10000, '#a5b4fc', '7–10 km'],
+  [Infinity, '#e0f2fe', 'above 10 km'],
+];
 function altitudeColor(a) {
-  if (a.onGround) return '#6b7280';
+  if (a.onGround) return GROUND_COLOR;
   const alt = a.altitude ?? 0;
-  if (alt < 3000) return '#5eead4';
-  if (alt < 7000) return '#38bdf8';
-  if (alt < 10000) return '#a5b4fc';
-  return '#e0f2fe';
+  return ALTITUDE_BANDS.find(([max]) => max > 0 && alt < max)[1];
 }
 
 // Thousands of aircraft as DOM markers would crawl, so they are painted on one
@@ -240,7 +247,8 @@ export default function create(ctx) {
   // Filter: only fetch and count aircraft in the current view.
   const hint = el('div', { class: 'hint' }, 'Covers the whole world.');
   const checkbox = el('input', { type: 'checkbox' });
-  const filter = el('div', { class: 'filter' }, el('label', {}, 'Only aircraft in current view', checkbox), hint);
+  const filter = el('div', { class: 'filter' }, el('label', {}, 'Only aircraft in current view', checkbox), hint,
+    legend(ALTITUDE_BANDS.map(([, c, label]) => [c, label]), { label: 'Aircraft altitude colors' }));
   ctx.addFilter(filter);
 
   function viewBox() {

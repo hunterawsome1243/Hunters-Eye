@@ -44,6 +44,17 @@ function setSidebar(open) {
 setSidebar(window.innerWidth > 760);
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
 
+// Filters fold away under the feed; closed to start with where the sidebar is short.
+const filtersSection = document.querySelector('.filters-section');
+const filtersToggle = document.getElementById('filters-toggle');
+function setFilters(open) {
+  filtersSection.classList.toggle('closed', !open);
+  filtersToggle.setAttribute('aria-expanded', String(open));
+}
+setFilters(!window.matchMedia('(max-width: 760px), (max-height: 500px)').matches);
+requestAnimationFrame(() => filtersSection.classList.remove('no-anim')); // no fold animation on load
+filtersToggle.addEventListener('click', () => setFilters(filtersSection.classList.contains('closed')));
+
 const layers = [];
 const byId = new Map();
 const feed = createFeed(document.getElementById('feed'), document.getElementById('feed-count'), {

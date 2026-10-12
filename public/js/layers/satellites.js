@@ -53,7 +53,7 @@ export default function create(ctx) {
   const filterBox = el('input', { type: 'checkbox' });
   ctx.addFilter(el('div', { class: 'filter' },
     el('label', {}, 'Only notable satellites', filterBox),
-    el('div', { class: 'hint' }, 'Labelled: ISS, Tiangong, Hubble and a few others. The ground track follows the selected satellite (ISS by default).')));
+    el('div', { class: 'hint' }, 'Labels: ISS, Tiangong, Hubble and a few more. The track follows the selected one.')));
   filterBox.addEventListener('change', () => {
     notableOnly = filterBox.checked;
     for (const s of sats.values()) applyVisibility(s);

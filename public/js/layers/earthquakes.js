@@ -1,4 +1,5 @@
 import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 
 const HOUR = 3_600_000;
 const AGE_COLORS = [
@@ -22,8 +23,8 @@ export default function create(ctx) {
   const output = el('output', {}, minMag.toFixed(1));
   const slider = el('input', { type: 'range', min: '-1', max: '7', step: '0.5', value: String(minMag), 'aria-label': 'Minimum earthquake magnitude' });
   filter.append(el('label', {}, 'Min. earthquake magnitude', output), slider,
-    el('div', { class: 'hint' }, 'Circle size = magnitude, color = age: ',
-      ...AGE_COLORS.flatMap(([, c, label], i) => [i ? ', ' : '', el('span', { style: `color:${c}` }, label)])));
+    el('div', { class: 'hint' }, 'Size is magnitude, color is age.'),
+    legend(AGE_COLORS.map(([, c, label]) => [c, label]), { label: 'Earthquake age colors' }));
   slider.addEventListener('input', () => {
     minMag = Number(slider.value);
     output.textContent = minMag.toFixed(1);
