@@ -1,8 +1,5 @@
 import { el } from './format.js';
 
-// Values like "12:04:05 (3 min ago)" or "850 km/h (459 kt)" get the bracketed part
-// as a muted second line instead of wrapping mid-value.
-const SUB = /^(.+?) \(([^()]+)\)$/;
 const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 
 // The floating panel that shows whatever item was clicked last.
@@ -21,14 +18,14 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   let closing = null; // fallback timer while the exit animation plays
 
   // The panel stays in the DOM while its exit animation runs, then hides for real.
+  // Leftover drag styles go too, unless a finger still holds the sheet.
   function settle() {
-    if (!closing) return;
-    clearTimeout(closing);
-    closing = null;
-    root.classList.remove('closing');
-    root.style.removeProperty('--drag');
-    root.style.transform = '';
-    root.style.opacity = '';
+    if (closing) {
+      clearTimeout(closing);
+      closing = null;
+      root.classList.remove('closing');
+    }
+    if (!drag) clearDragStyles();
   }
   function finishHide() {
     settle();
@@ -37,6 +34,7 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   function hide() {
     if (currentKey === null) return;
     currentKey = null;
+    cancelDrag(); // closed from elsewhere mid-drag (an alert expiring, a map tap)
     root.classList.add('closing');
     closing = setTimeout(finishHide, 400);
     onClose?.();
@@ -53,8 +51,19 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   // On phones the panel is a bottom sheet: dragging its header down from the top
   // closes it; dragging up (or down while scrolled) scrolls the sheet instead.
   let drag = null;
+  function clearDragStyles() {
+    root.style.removeProperty('--drag');
+    root.style.transform = '';
+    root.style.opacity = '';
+    root.style.transition = '';
+  }
+  function cancelDrag() {
+    if (!drag) return;
+    try { head.releasePointerCapture(drag.id); } catch { /* never captured */ }
+    drag = null;
+  }
   head.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'touch' || !SHEET.matches || closeBtn.contains(e.target)) return;
+    if (e.pointerType !== 'touch' || !SHEET.matches || currentKey === null || closeBtn.contains(e.target)) return;
     drag = { id: e.pointerId, startX: e.clientX, startY: e.clientY, startTop: root.scrollTop, dy: 0, mode: null };
   });
   head.addEventListener('pointermove', (e) => {
@@ -96,9 +105,10 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   head.addEventListener('pointerup', endDrag);
   head.addEventListener('pointercancel', endDrag);
 
-  function value(v) {
-    const m = typeof v === 'string' && SUB.exec(v);
-    return m ? el('dd', {}, m[1], el('span', { class: 'sub' }, m[2])) : el('dd', {}, v);
+  // A field is [label, value, sub?]: the optional sub ("459 kt", "3 min ago") is a
+  // muted second line instead of a bracket that wraps mid-value.
+  function value(v, sub) {
+    return sub ? el('dd', {}, v, el('span', { class: 'sub' }, sub)) : el('dd', {}, v);
   }
 
   return {
@@ -109,7 +119,7 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
       swatch.style.background = color;
       kicker.textContent = kind;
       title.textContent = heading;
-      rows.replaceChildren(...fields.filter(([, v]) => v != null && v !== '').flatMap(([k, v]) => [el('dt', {}, k), value(v)]));
+      rows.replaceChildren(...fields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
       extra.replaceChildren();
       if (notes) extra.append(notes);
       if (link && /^https?:\/\//.test(link.href)) extra.append(notes ? '\n\n' : '', el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));

@@ -115,11 +115,11 @@ export default function create(ctx) {
       fields: [
         ['NORAD ID', sat.id],
         ['Altitude', pos ? `${num(pos.alt)} km` : '—'],
-        ['Speed', pos ? `${num(pos.speed, 2)} km/s (${num(pos.speed * 3600)} km/h)` : '—'],
+        ['Speed', pos ? `${num(pos.speed, 2)} km/s` : '—', pos ? `${num(pos.speed * 3600)} km/h` : null],
         ['Position', pos ? latLon(pos.lat, pos.lon) : '—'],
         ['Inclination', `${num((satrec.inclo * 180) / Math.PI, 2)}°`],
         ['Orbital period', `${num(periodMin, 1)} min`],
-        ['Element set epoch', `${dateTime(epoch)} (${timeAgo(epoch)})`],
+        ['Element set epoch', dateTime(epoch), timeAgo(epoch)],
         ['CelesTrak group', sat.group.toLowerCase()],
       ],
       notes: 'Dashed line: last half orbit. Solid line: next full orbit. Circle: area from which it is above the horizon.',

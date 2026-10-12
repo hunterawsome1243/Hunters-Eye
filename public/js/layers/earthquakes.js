@@ -64,7 +64,7 @@ export default function create(ctx) {
       fields: [
         ['Magnitude', `${num(q.mag, 1)} ${q.magType || ''}`.trim()],
         ['Depth', q.depth != null ? `${num(q.depth, 1)} km` : null],
-        ['Time', `${dateTime(q.time)} (${timeAgo(q.time)})`],
+        ['Time', dateTime(q.time), timeAgo(q.time)],
         ['Location', latLon(q.lat, q.lon)],
         ['Status', q.status],
         ['Felt reports', q.felt || null],

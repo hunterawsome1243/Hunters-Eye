@@ -1,5 +1,5 @@
 import { putJson } from '../api.js';
-import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
+import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
 import { legend } from '../ui/legend.js';
 
 const COLOR = '#38bdf8';
@@ -174,7 +174,6 @@ export default function create(ctx) {
 
   function showDetail(a) {
     const [lat, lon] = position(a);
-    const ft = a.altitude != null ? ` (${num(a.altitude * 3.28084)} ft)` : '';
     detail.show({
       key: `aircraft:${a.icao24}`,
       color: altitudeColor(a),
@@ -184,18 +183,18 @@ export default function create(ctx) {
         ['Callsign', a.callsign || '—'],
         ['ICAO 24-bit', a.icao24.toUpperCase()],
         ['Registered in', a.country],
-        ['Altitude', a.onGround ? 'On ground' : a.altitude != null ? `${num(a.altitude)} m${ft}` : '—'],
-        ['Ground speed', a.velocity != null ? `${num(a.velocity * 3.6)} km/h (${num(a.velocity * 1.94384)} kt)` : '—'],
+        ['Altitude', a.onGround ? 'On ground' : a.altitude != null ? `${num(a.altitude)} m` : '—', a.onGround || a.altitude == null ? null : `${num(a.altitude * 3.28084)} ft`],
+        ['Ground speed', a.velocity != null ? `${num(a.velocity * 3.6)} km/h` : '—', a.velocity != null ? `${num(a.velocity * 1.94384)} kt` : null],
         ['Heading', a.track != null ? `${num(a.track)}°` : '—'],
         ['Vertical rate', a.verticalRate != null ? `${a.verticalRate > 0 ? '+' : ''}${num(a.verticalRate, 1)} m/s` : null],
         ['Squawk', a.squawk ? `${a.squawk}${EMERGENCY[a.squawk] ? ` · ${EMERGENCY[a.squawk]}` : ''}` : null],
         ['Category', a.category > 1 ? CATEGORY[a.category] : null],
         ['Position', latLon(lat, lon)],
-        ['Last report', a.lastContact ? `${dateTime(a.lastContact * 1000)} (${timeAgo(a.lastContact * 1000)})` : '—'],
+        ['Last report', a.lastContact ? dateTime(a.lastContact * 1000) : '—', a.lastContact ? timeAgo(a.lastContact * 1000) : null],
       ],
       notes: a.onGround || !a.velocity ? '' : 'Position is estimated from the last report using speed and heading.',
       link: { href: `https://globe.adsbexchange.com/?icao=${a.icao24}`, label: 'Track on ADS-B Exchange ↗' },
-      latlng: [lat, lon],
+      latlng: [lat, nearLon(lon, map.getCenter().lng)],
     });
   }
 

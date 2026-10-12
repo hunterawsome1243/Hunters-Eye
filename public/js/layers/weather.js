@@ -54,7 +54,7 @@ export default function create(ctx) {
         ['Area', a.areaDesc],
         ['Urgency', a.urgency],
         ['Certainty', a.certainty],
-        ['Issued', a.sent ? `${dateTime(a.sent)} (${timeAgo(a.sent)})` : null],
+        ['Issued', a.sent ? dateTime(a.sent) : null, a.sent ? timeAgo(a.sent) : null],
         ['Expires', a.expires ? dateTime(a.expires) : null],
         ['Issued by', a.sender],
       ],
