@@ -272,7 +272,12 @@ function showStatus() {
   summary.update(shown, { serverDown });
   const d = liveStatus.update(shown, { serverDown });
   document.getElementById('connecting').classList.toggle('show', !!d.connecting);
-  feed.setLoading(!!d.connecting || shown.some((s) => s.loading)); // until every feed has answered once
+  // The feed shows skeletons while feeds are still answering (a browser fallback that
+  // is only waiting for its budget slot doesn't count), and settles once the server has
+  // answered and every feed has answered: a fill after an offline start is not news.
+  const answering = !!d.connecting || shown.some((s) => s.loading && !s.waiting);
+  feed.setLoading(answering);
+  if (shown.length && !answering) feed.settle();
   showAlertTint();
 }
 

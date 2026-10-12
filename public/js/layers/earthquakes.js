@@ -3,21 +3,26 @@ import { legend } from '../ui/legend.js';
 import { EMPTY, SEL, fc } from '../globe/geo.js';
 
 const HOUR = 3_600_000;
+// Colour and fill opacity by age: at marker size the fill carries the ramp, so a
+// fresh quake is a solid amber disc and an old one a faint ring.
 const AGE_COLORS = [
-  [HOUR, '#ffcc4d', 'past hour'],
-  [6 * HOUR, '#f5a524', 'past 6 hours'],
-  [24 * HOUR, '#c47f1f', 'past day'],
-  [Infinity, '#8a7a66', 'older'],
+  [HOUR, '#ffcc4d', 'past hour', 0.8],
+  [6 * HOUR, '#f5a524', 'past 6 hours', 0.55],
+  [24 * HOUR, '#c47f1f', 'past day', 0.35],
+  [Infinity, '#8a7a66', 'older', 0.3],
 ];
 
 // Index into AGE_COLORS: 0 = past hour, 1 = past 6 hours, 2 = past day, 3 = older.
 export const ageBucket = (time, now = Date.now()) => AGE_COLORS.findIndex(([max]) => now - time < max);
 export const ageColor = (time, now = Date.now()) => AGE_COLORS[ageBucket(time, now)][1];
+export const ageFillOpacity = (time, now = Date.now()) => AGE_COLORS[ageBucket(time, now)][3];
 export const radiusFor = (mag) => 2.5 + Math.max(0, mag ?? 0) ** 2 * 0.5;
 
 // Paint expressions: the circle colour follows the `age` bucket of the feature
 // (same hexes as ageColor), the stroke turns white while the feature is selected.
 export const AGE = ['match', ['get', 'age'], 0, AGE_COLORS[0][1], 1, AGE_COLORS[1][1], 2, AGE_COLORS[2][1], AGE_COLORS[3][1]];
+// Fill opacity by age bucket: a fresh quake is a solid disc, an old one a faint ring.
+export const AGE_OPACITY = ['match', ['get', 'age'], 0, AGE_COLORS[0][3], 1, AGE_COLORS[1][3], 2, AGE_COLORS[2][3], AGE_COLORS[3][3]];
 export const magFilter = (minMag) => ['>=', ['coalesce', ['get', 'mag'], -99], minMag];
 export const haloFilter = (minMag) => ['all', ['==', ['get', 'age'], 0], magFilter(minMag)];
 
@@ -197,7 +202,7 @@ export default function create(ctx) {
       paint: {
         'circle-radius': ['get', 'r'],
         'circle-color': AGE,
-        'circle-opacity': 0.35,
+        'circle-opacity': AGE_OPACITY,
         'circle-stroke-color': ['case', SEL, '#ffffff', AGE],
         'circle-stroke-width': ['case', SEL, 2.5, 1],
         'circle-stroke-opacity': 0.9,

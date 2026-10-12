@@ -44,11 +44,11 @@ test('dead-reckoning cadence follows the zoom and doubles on phones', () => {
 
 test('altitude colours match the paint buckets', () => {
   assert.equal(altitudeColor({ onGround: true, altitude: 12_000 }), '#6b7280');
-  assert.equal(altitudeColor({ altitude: null }), '#0ea5e9');
-  assert.equal(altitudeColor({ altitude: 2999 }), '#0ea5e9');
-  assert.equal(altitudeColor({ altitude: 3000 }), '#38bdf8');
-  assert.equal(altitudeColor({ altitude: 7000 }), '#7dd3fc');
-  assert.equal(altitudeColor({ altitude: 10_000 }), '#e0f2fe');
+  assert.equal(altitudeColor({ altitude: null }), '#0e7490');
+  assert.equal(altitudeColor({ altitude: 2999 }), '#0e7490');
+  assert.equal(altitudeColor({ altitude: 3000 }), '#06b6d4');
+  assert.equal(altitudeColor({ altitude: 7000 }), '#67e8f9');
+  assert.equal(altitudeColor({ altitude: 10_000 }), '#ecfeff');
 });
 
 test('boxInside says whether a view still sits inside the padded push box', () => {

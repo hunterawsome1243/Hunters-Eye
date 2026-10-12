@@ -3,12 +3,14 @@ import { legend } from '../ui/legend.js';
 import { EMPTY, SEL, boundsOf, fc, unwrapPolygons } from '../globe/geo.js';
 
 const COLOR = '#f43f5e';
+// A rose family that steps in lightness, with the fill opacity and the stroke weight
+// following severity, so the difference survives the alpha blend on the map.
 export const SEVERITY = {
-  Extreme: { color: '#ff4d8d', rank: 0 },
-  Severe: { color: '#f43f5e', rank: 1 },
-  Moderate: { color: '#d97787', rank: 2 },
-  Minor: { color: '#a8818c', rank: 3 },
-  Unknown: { color: '#8b8790', rank: 4 },
+  Extreme: { color: '#ff8fc6', fill: 0.34, weight: 2, rank: 0 },
+  Severe: { color: '#e11d48', fill: 0.26, weight: 1, rank: 1 },
+  Moderate: { color: '#c9707e', fill: 0.22, weight: 1, rank: 2 },
+  Minor: { color: '#c7a6ae', fill: 0.2, weight: 1, rank: 3 },
+  Unknown: { color: '#605d66', fill: 0.14, weight: 1, rank: 4 },
 };
 const severityOf = (a) => SEVERITY[a.severity] || SEVERITY.Unknown;
 // [lat, lon] at the middle of an alert's outline, where its feed ripple lands.
@@ -26,11 +28,11 @@ export const rankFilter = (maxRank) => ['<=', ['get', 'rank'], maxRank];
 // One GeoJSON feature per alert that has an outline. Western Aleutian zones and
 // polar areas cross 180°, so every ring is unwrapped first.
 export function alertFeature(a, polygons) {
-  const { color, rank } = severityOf(a);
+  const { color, fill, weight, rank } = severityOf(a);
   return {
     type: 'Feature',
     id: a.id,
-    properties: { id: a.id, rank, color },
+    properties: { id: a.id, rank, color, fill, weight },
     geometry: { type: 'MultiPolygon', coordinates: unwrapPolygons(polygons) },
   };
 }
@@ -87,12 +89,12 @@ export default function create(ctx) {
     ctx.addLayer({
       id: FILL, type: 'fill', source: SRC, filter: rankFilter(maxRank),
       layout: { 'fill-sort-key': ['-', 4, ['get', 'rank']] },
-      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', SEL, 0.4, 0.22] },
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', SEL, 0.4, ['get', 'fill']] },
     }, 'shapes');
     ctx.addLayer({
       id: LINE, type: 'line', source: SRC, filter: rankFilter(maxRank),
       layout: { 'line-sort-key': ['-', 4, ['get', 'rank']] },
-      paint: { 'line-color': ['case', SEL, '#ffffff', ['get', 'color']], 'line-width': ['case', SEL, 2.5, 1], 'line-opacity': 0.9 },
+      paint: { 'line-color': ['case', SEL, '#ffffff', ['get', 'color']], 'line-width': ['case', SEL, 2.5, ['get', 'weight']], 'line-opacity': 0.9 },
     }, 'shapes');
     map?.getSource(SRC)?.setData(last);
     applyFilter();

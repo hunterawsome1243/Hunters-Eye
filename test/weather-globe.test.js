@@ -8,7 +8,7 @@ test('alertFeature carries the promoted id, rank and colour', () => {
   const f = alertFeature({ id: 'urn:x', severity: 'Severe' }, [box(-97.7, 35.3, -97.2, 35.7)]);
   assert.equal(f.type, 'Feature');
   assert.equal(f.id, 'urn:x');
-  assert.deepEqual(f.properties, { id: 'urn:x', rank: SEVERITY.Severe.rank, color: SEVERITY.Severe.color });
+  assert.deepEqual(f.properties, { id: 'urn:x', rank: SEVERITY.Severe.rank, color: SEVERITY.Severe.color, fill: SEVERITY.Severe.fill, weight: SEVERITY.Severe.weight });
   assert.equal(f.geometry.type, 'MultiPolygon');
   assert.equal(f.geometry.coordinates.length, 1);
 });

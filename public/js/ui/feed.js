@@ -25,8 +25,8 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
   const nodes = new Map(); // id -> { li, button, time, entry }
   let renderQueued = false;
   let revealQueued = false;
-  let loading = true; // skeleton rows until the first load is done (app.js setLoading)
-  let settledAt = null; // when the first load finished
+  let loading = true; // skeleton rows while feeds are still answering (app.js setLoading)
+  let settledAt = null; // when the first load finished (app.js settle)
 
   function prune(source) {
     const mine = [...entries.values()].filter((e) => e.source === source).sort((a, b) => b.time - a.time);
@@ -74,9 +74,9 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     const top = listEl.scrollTop;
     const anchor = top > 0 ? [...listEl.children].find((li) => li.offsetTop + li.offsetHeight > top) : null;
     const anchorTop = anchor?.offsetTop;
-    // An entry animates once, when it first lands after the first load (not again when
-    // a layer toggle or a filter brings its row back).
-    const fresh = (t, e) => settledAt !== null && t > settledAt + SETTLE_MS && !e.animated;
+    // An entry is "new" once, when its row is first built after the first load (not
+    // again when a layer toggle or a filter brings the row back).
+    const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
     let arrived = null;
 
     const lis = shown.map((e) => {
@@ -85,18 +85,16 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         n = { li: el('li', { class: e.system ? 'system' : null }) };
         fill(n, e, now);
         nodes.set(e.id, n);
-        if (fresh(e.addedAt, e)) {
+        if (!e.shown && fresh(e.replacedAt ?? e.addedAt)) { // revised past a filter is new to the reader
           n.li.classList.add('new');
-          e.animated = true;
           if (e.significant) arrived ??= e; // shown is newest first
         }
+        e.shown = true;
       } else if (n.entry !== e) {
         fill(n, e, now); // replaced (an earthquake's magnitude was revised)
         n.li.classList.remove('new');
-        if (fresh(e.replacedAt, e)) {
-          n.li.classList.add('updated');
-          e.animated = true;
-        }
+        if (fresh(e.replacedAt)) n.li.classList.add('updated');
+        e.shown = true;
       } else {
         n.time.textContent = timeAgo(e.time, now);
       }
@@ -150,7 +148,10 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       if (prior && !entry.replace) return;
       const now = Date.now();
       entry.addedAt = prior ? prior.addedAt : now;
-      if (prior) entry.replacedAt = now;
+      if (prior) {
+        entry.replacedAt = now;
+        entry.shown = prior.shown; // a revision of a row the reader has seen
+      }
       entries.set(entry.id, entry);
       prune(entry.source);
       refresh();
@@ -161,8 +162,11 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     setLoading(on) {
       if (loading === on) return;
       loading = on;
-      if (!on && settledAt === null) settledAt = Date.now();
       refresh();
+    },
+    // The first load is done: entries from here on are news.
+    settle() {
+      settledAt ??= Date.now();
     },
     refresh,
     // The entries a reader currently sees, newest first (for the situation brief).

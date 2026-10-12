@@ -4,7 +4,7 @@ import { planeImage } from '../globe/icons.js';
 import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
 import { legend } from '../ui/legend.js';
 
-const COLOR = '#38bdf8';
+const COLOR = '#22d3ee';
 const MAX_EXTRAPOLATE_S = 300;
 const SUBSET_ZOOM = 10; // from here up only the planes near the view are pushed to the GPU
 const EMERGENCY = { '7500': 'Hijack (7500)', '7600': 'Radio failure (7600)', '7700': 'General emergency (7700)' };
@@ -17,14 +17,16 @@ const SEL_SRC = 'he-aircraft-sel';
 const IMG = 'he-plane';
 
 // Plane colour by altitude (metres), ground first; also the legend under the filter.
+// A cyan family (the UI's own accent is sky, so chrome never reads as a plane) with
+// lightness steps wide enough to tell apart on a 10px glyph.
 // The detail swatch and the feed colour; the ALT paint expression below mirrors these bands.
 const GROUND_COLOR = '#6b7280';
 const ALTITUDE_BANDS = [
   [0, GROUND_COLOR, 'on ground'],
-  [3000, '#0ea5e9', 'below 3 km'],
-  [7000, '#38bdf8', '3–7 km'],
-  [10000, '#7dd3fc', '7–10 km'],
-  [Infinity, '#e0f2fe', 'above 10 km'],
+  [3000, '#0e7490', 'below 3 km'],
+  [7000, '#06b6d4', '3–7 km'],
+  [10000, '#67e8f9', '7–10 km'],
+  [Infinity, '#ecfeff', 'above 10 km'],
 ];
 export function altitudeColor(a) {
   if (a.onGround) return GROUND_COLOR;

@@ -138,7 +138,7 @@ export default function create(ctx) {
           'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 11,
           'text-anchor': 'left', 'text-offset': [0.9, 0], 'text-allow-overlap': true, 'text-ignore-placement': true,
         },
-        paint: { 'text-color': '#f5d0fe', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
+        paint: { 'text-color': '#ddd6fe', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
       }, 'labels');
     }
     map.getSource(SRC)?.setData(lastSats);
