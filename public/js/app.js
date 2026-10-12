@@ -42,12 +42,9 @@ const sidebarToggle = document.getElementById('sidebar-toggle');
 const scrim = document.getElementById('scrim');
 const PHONE = window.matchMedia('(max-width: 760px)');
 let sizing = 0; // frame handle while the map follows the panel's slide
-function setSidebar(open) {
-  if (!open && sidebar.contains(document.activeElement)) sidebarToggle.focus(); // nothing stays focused off screen
-  document.body.classList.toggle('sidebar-open', open);
-  sidebarToggle.setAttribute('aria-expanded', String(open));
-  // The map resizes with the panel instead of snapping once the slide has ended: its
-  // size is re-read every frame, which keeps the centre where it was.
+// The map resizes with the panel instead of snapping once the slide has ended: its
+// size is re-read every frame, which keeps the centre where it was.
+function followPanel() {
   cancelAnimationFrame(sizing);
   const started = performance.now();
   const follow = () => {
@@ -56,17 +53,56 @@ function setSidebar(open) {
   };
   sizing = requestAnimationFrame(follow);
 }
+// On phones the open panel is modal: the map and the sheet under the scrim leave the
+// tab order and the accessibility tree (the scrim already takes their taps), and the
+// panel reads as a dialog.
+const mapEl = document.getElementById('map');
+const detailEl = document.getElementById('detail');
+function setModal() {
+  const modal = PHONE.matches && document.body.classList.contains('sidebar-open');
+  mapEl.inert = modal;
+  detailEl.inert = modal;
+  if (modal) {
+    sidebar.setAttribute('role', 'dialog');
+    sidebar.setAttribute('aria-modal', 'true');
+    sidebar.setAttribute('aria-label', 'Side panel');
+  } else {
+    for (const a of ['role', 'aria-modal', 'aria-label']) sidebar.removeAttribute(a);
+  }
+}
+function setSidebar(open) {
+  if (!open && sidebar.contains(document.activeElement)) sidebarToggle.focus(); // nothing stays focused off screen
+  document.body.classList.toggle('sidebar-open', open);
+  sidebarToggle.setAttribute('aria-expanded', String(open));
+  setModal();
+  followPanel();
+}
 setSidebar(window.innerWidth > 760);
+// Crossing the phone breakpoint with the panel open slides the map's edge too (from
+// beside the panel to under it, or back) and changes whether the panel is modal.
+PHONE.addEventListener('change', () => {
+  setModal();
+  if (document.body.classList.contains('sidebar-open')) followPanel();
+});
 requestAnimationFrame(() => [sidebar, scrim, document.getElementById('map')].forEach((n) => n.classList.remove('no-anim'))); // no slide on load
 sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classList.contains('sidebar-open')));
 scrim.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the panel until the close moves it
 scrim.addEventListener('click', () => setSidebar(false));
+// Escape closes the open phone panel before anything under the scrim. The sheet's own
+// Escape is registered later in this file, so the stop here reaches it; the chip
+// popover's capture-phase Escape still goes first.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !PHONE.matches || !document.body.classList.contains('sidebar-open')) return;
+  e.stopImmediatePropagation();
+  setSidebar(false);
+});
 
 // A touch swipe to the left drags the phone sidebar closed; the scrim fades with it.
 // touch-action: pan-y leaves vertical gestures to the browser, so the feed still scrolls.
 let swipe = null;
 sidebar.addEventListener('pointerdown', (e) => {
-  if (e.pointerType !== 'touch' || !PHONE.matches || e.target.closest('input[type="range"], select')) return;
+  // Only the first finger swipes: a second one (a resting thumb) must not take over a swipe in flight.
+  if (!e.isPrimary || e.pointerType !== 'touch' || !PHONE.matches || e.target.closest('input[type="range"], select')) return;
   swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, t: e.timeStamp, v: 0, on: false };
 });
 sidebar.addEventListener('pointermove', (e) => {
@@ -87,14 +123,14 @@ sidebar.addEventListener('pointermove', (e) => {
 });
 function endSwipe(e) {
   if (!swipe || e.pointerId !== swipe.id) return;
-  const { dx, v, on } = swipe;
+  const { dx, on, t } = swipe;
+  const v = e.timeStamp - t > 100 ? 0 : swipe.v; // a finger that paused before lifting is not flicking
   swipe = null;
-  if (!on) return;
   sidebar.classList.remove('dragging');
   scrim.classList.remove('dragging');
   sidebar.style.transform = ''; // the slide carries on from here, closing or snapping back
   scrim.style.opacity = '';
-  if (e.type !== 'pointercancel' && (dx < -sidebar.offsetWidth / 3 || (v < -0.5 && dx < -40))) setSidebar(false);
+  if (on && e.type !== 'pointercancel' && (dx < -sidebar.offsetWidth / 3 || (v < -0.5 && dx < -40))) setSidebar(false);
 }
 sidebar.addEventListener('pointerup', endSwipe);
 sidebar.addEventListener('pointercancel', endSwipe);

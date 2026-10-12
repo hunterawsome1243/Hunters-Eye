@@ -18,7 +18,8 @@ const ICONS = {
 // Rows keep their DOM nodes between renders: a new one slides in at its place, a
 // revised one glows, and the row under the reader's eye stays put while rows land above.
 // "New" is a property of the entry (when it was added), not of the row: rows re-shown
-// after a layer toggle, or a source that lands late in the first load, stay quiet.
+// after a layer toggle, an entry that landed while a filter hid its row, or a source
+// that lands late in the first load, stay quiet.
 // onArrive(entry) fires for the newest significant entry that lands after the first load.
 export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false, onArrive = () => {} } = {}) {
   const entries = new Map();
@@ -59,6 +60,10 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     const now = Date.now();
     const visible = [...entries.values()].filter((e) => e.system || isVisible(e)).sort((a, b) => b.time - a.time);
     const shown = visible.slice(0, DISPLAY_LIMIT);
+    // An entry whose row a filter or a layer toggle hides when it lands is not news when
+    // the row appears later: the reader's own change brought it, nothing happened just now.
+    const shownIds = new Set(shown.map((e) => e.id));
+    for (const e of entries.values()) if (!shownIds.has(e.id)) e.quiet = true;
     tweenNumber(countEl, visible.length, { format: (v) => (v ? `(${num(v)})` : '') });
     if (!shown.length) {
       nodes.clear();
@@ -85,7 +90,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         n = { li: el('li', { class: e.system ? 'system' : null }) };
         fill(n, e, now);
         nodes.set(e.id, n);
-        if (!e.shown && fresh(e.replacedAt ?? e.addedAt)) { // revised past a filter is new to the reader
+        if (!e.shown && !e.quiet && fresh(e.replacedAt ?? e.addedAt)) { // revised past a filter is new to the reader
           n.li.classList.add('new');
           if (e.significant) arrived ??= e; // shown is newest first
         }

@@ -1,4 +1,4 @@
-import { dateTime, el, timeAgo } from '../ui/format.js';
+import { dateTime, el, nearLon, timeAgo } from '../ui/format.js';
 import { legend } from '../ui/legend.js';
 
 const COLOR = '#f43f5e';
@@ -11,6 +11,20 @@ const SEVERITY = {
   Minor: { color: '#c7a6ae', fill: 0.2, weight: 1, rank: 3 },
   Unknown: { color: '#605d66', fill: 0.14, weight: 1, rank: 4 },
 };
+
+// The middle of an alert area, with every longitude moved to the world copy nearest
+// the first vertex. NWS serves a zone that straddles the antimeridian (the western
+// Aleutians) in two parts, at +176..180 and -180..-176; the plain bounds of those span
+// the whole world and their centre sits at longitude 0.
+function centerOf(polygons) {
+  const bounds = L.latLngBounds([]);
+  let ref = null;
+  for (const poly of polygons) for (const ring of poly) for (const [lon, lat] of ring) {
+    ref ??= lon;
+    bounds.extend([lat, nearLon(lon, ref)]);
+  }
+  return bounds.isValid() ? bounds.getCenter() : null;
+}
 
 export default function create(ctx) {
   const { map, feed, detail } = ctx;
@@ -121,7 +135,7 @@ export default function create(ctx) {
           time: a.sent ?? Date.now(),
           severity: a.severity,
           significant: a.severity === 'Extreme' || a.severity === 'Severe',
-          latlng: entry.layer?.getBounds?.().getCenter() ?? null,
+          latlng: entry.layer ? centerOf(polygons) : null,
           radius: 10,
           color: (SEVERITY[a.severity] || SEVERITY.Unknown).color,
           title: a.event,
