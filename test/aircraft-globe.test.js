@@ -44,10 +44,10 @@ test('dead-reckoning cadence follows the zoom and doubles on phones', () => {
 
 test('altitude colours match the paint buckets', () => {
   assert.equal(altitudeColor({ onGround: true, altitude: 12_000 }), '#6b7280');
-  assert.equal(altitudeColor({ altitude: null }), '#5eead4');
-  assert.equal(altitudeColor({ altitude: 2999 }), '#5eead4');
+  assert.equal(altitudeColor({ altitude: null }), '#0ea5e9');
+  assert.equal(altitudeColor({ altitude: 2999 }), '#0ea5e9');
   assert.equal(altitudeColor({ altitude: 3000 }), '#38bdf8');
-  assert.equal(altitudeColor({ altitude: 7000 }), '#a5b4fc');
+  assert.equal(altitudeColor({ altitude: 7000 }), '#7dd3fc');
   assert.equal(altitudeColor({ altitude: 10_000 }), '#e0f2fe');
 });
 

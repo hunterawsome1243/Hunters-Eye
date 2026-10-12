@@ -1,15 +1,21 @@
 import { dateTime, el, timeAgo } from '../ui/format.js';
+import { legend } from '../ui/legend.js';
 import { EMPTY, SEL, boundsOf, fc, unwrapPolygons } from '../globe/geo.js';
 
 const COLOR = '#f43f5e';
 export const SEVERITY = {
-  Extreme: { color: '#d946ef', rank: 0 },
-  Severe: { color: '#ef4444', rank: 1 },
-  Moderate: { color: '#f97316', rank: 2 },
-  Minor: { color: '#eab308', rank: 3 },
-  Unknown: { color: '#94a3b8', rank: 4 },
+  Extreme: { color: '#ff4d8d', rank: 0 },
+  Severe: { color: '#f43f5e', rank: 1 },
+  Moderate: { color: '#d97787', rank: 2 },
+  Minor: { color: '#a8818c', rank: 3 },
+  Unknown: { color: '#8b8790', rank: 4 },
 };
 const severityOf = (a) => SEVERITY[a.severity] || SEVERITY.Unknown;
+// [lat, lon] at the middle of an alert's outline, where its feed ripple lands.
+const centreOf = (polygons) => {
+  const b = boundsOf(polygons);
+  return b ? [(b[0][1] + b[1][1]) / 2, (b[0][0] + b[1][0]) / 2] : null;
+};
 
 const SRC = 'he-weather';
 const FILL = 'he-weather-fill';
@@ -48,7 +54,7 @@ export default function create(ctx) {
   });
   ctx.addFilter(el('div', { class: 'filter' },
     el('label', {}, 'Weather alerts', picker),
-    el('div', { class: 'hint' }, ...Object.entries(SEVERITY).flatMap(([name, { color }], i) => [i ? ' · ' : '', el('span', { style: `color:${color}` }, name)]))));
+    legend(Object.entries(SEVERITY).map(([name, { color }]) => [color, name]), { shape: 'square', label: 'Alert severity colors' })));
 
   const passes = (a) => severityOf(a).rank <= maxRank;
 
@@ -104,7 +110,7 @@ export default function create(ctx) {
         ['Area', a.areaDesc],
         ['Urgency', a.urgency],
         ['Certainty', a.certainty],
-        ['Issued', a.sent ? `${dateTime(a.sent)} (${timeAgo(a.sent)})` : null],
+        ['Issued', a.sent ? dateTime(a.sent) : null, a.sent ? timeAgo(a.sent) : null],
         ['Expires', a.expires ? dateTime(a.expires) : null],
         ['Issued by', a.sender],
       ],
@@ -135,6 +141,7 @@ export default function create(ctx) {
   }
 
   function update({ alerts, zones }) {
+    api.urgent = alerts.some((a) => a.severity === 'Extreme');
     const seen = new Set(alerts.map((a) => a.id));
     let changed = false; // only a changed outline set is worth re-tiling
     for (const [id, s] of shapes) {
@@ -168,6 +175,9 @@ export default function create(ctx) {
           source: 'weather',
           time: a.sent ?? Date.now(),
           severity: a.severity,
+          significant: a.severity === 'Extreme' || a.severity === 'Severe',
+          latlng: centreOf(polygons),
+          radius: 10,
           color: severityOf(a).color,
           title: a.event,
           subtitle: a.areaDesc,

@@ -1,7 +1,7 @@
 import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
 import { EMPTY, SEL, fc, footprintRadiusKm, geodesicCircle, recentre, unwrapLine } from '../globe/geo.js';
 
-const COLOR = '#e879f9';
+const COLOR = '#a78bfa';
 const TICK_MS = 1000;
 const TRACK_STEP_S = 30;
 const TRACK_REFRESH_MS = 60_000;
@@ -81,7 +81,7 @@ export default function create(ctx) {
   const filterBox = el('input', { type: 'checkbox' });
   ctx.addFilter(el('div', { class: 'filter' },
     el('label', {}, 'Only notable satellites', filterBox),
-    el('div', { class: 'hint' }, 'Labelled: ISS, Tiangong, Hubble and a few others. The ground track follows the selected satellite (ISS by default).')));
+    el('div', { class: 'hint' }, 'Labels: ISS, Tiangong, Hubble and a few more. The track follows the selected one.')));
   filterBox.addEventListener('change', () => {
     notableOnly = filterBox.checked;
     applyFilter();
@@ -193,15 +193,17 @@ export default function create(ctx) {
       fields: [
         ['NORAD ID', sat.id],
         ['Altitude', pos ? `${num(pos.alt)} km` : '—'],
-        ['Speed', pos ? `${num(pos.speed, 2)} km/s (${num(pos.speed * 3600)} km/h)` : '—'],
+        ['Speed', pos ? `${num(pos.speed, 2)} km/s` : '—', pos ? `${num(pos.speed * 3600)} km/h` : null],
         ['Position', pos ? latLon(pos.lat, pos.lon) : '—'],
         ['Inclination', `${num((satrec.inclo * 180) / Math.PI, 2)}°`],
         ['Orbital period', `${num(periodMin, 1)} min`],
-        ['Element set epoch', `${dateTime(epoch)} (${timeAgo(epoch)})`],
+        ['Element set epoch', dateTime(epoch), timeAgo(epoch)],
         ['CelesTrak group', sat.group.toLowerCase()],
       ],
       notes: 'Dashed line: last half orbit. Solid line: next full orbit. Circle: area from which it is above the horizon.',
       link: { href: `https://www.n2yo.com/satellite/?s=${encodeURIComponent(sat.id)}`, label: 'Pass predictions on N2YO ↗' },
+      latlng: pos ? [pos.lat, pos.lon] : null,
+      radius: sat.notable ? 6 : 3.5,
     });
   }
 

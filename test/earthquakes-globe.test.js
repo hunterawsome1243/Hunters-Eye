@@ -10,8 +10,8 @@ test('age buckets follow the hour / 6 h / day thresholds', () => {
   assert.equal(ageBucket(now - 3 * HOUR, now), 1);
   assert.equal(ageBucket(now - 20 * HOUR, now), 2);
   assert.equal(ageBucket(now - 48 * HOUR, now), 3);
-  assert.equal(ageColor(now - 10 * 60e3, now), '#ff4d4d');
-  assert.equal(ageColor(now - 48 * HOUR, now), '#8a94a3');
+  assert.equal(ageColor(now - 10 * 60e3, now), '#ffcc4d');
+  assert.equal(ageColor(now - 48 * HOUR, now), '#8a7a66');
 });
 
 test('the paint expression uses the same colours as ageColor', () => {

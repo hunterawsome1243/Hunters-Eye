@@ -16,8 +16,10 @@ test('all sources fresh reads as live with the newest update time', () => {
 test('nothing loaded yet is connecting, partly loaded is loading', () => {
   assert.equal(describeStatus([], { now }).state, 'loading');
   assert.equal(describeStatus([row('a', { loading: true, updatedAt: null })], { now }).label, 'Connecting');
+  assert.equal(describeStatus([], { now }).connecting, true);
   const d = describeStatus([row('a'), row('b', { loading: true, updatedAt: null })], { now });
   assert.equal(d.state, 'loading');
+  assert.equal(d.connecting, undefined);
   assert.equal(d.label, 'Loading');
 });
 
@@ -30,11 +32,26 @@ test('failing feeds are counted, and still show when the data was last good', ()
   assert.equal(two.label, 'All feeds failing');
 });
 
-test('a source older than three intervals (at least five minutes) is stale', () => {
+test('a source older than three intervals (at least five minutes) is stale, and the pill names it', () => {
   const d = describeStatus([row('a'), row('b', { updatedAt: now - 6 * 60_000 })], { now });
   assert.equal(d.state, 'stale');
-  assert.equal(d.detail, 'last data 12s ago');
+  assert.equal(d.label, '1 feed stale');
+  assert.equal(d.detail, 'oldest 6m ago');
   assert.equal(describeStatus([row('b', { updatedAt: now - 4 * 60_000 })], { now }).state, 'live');
+  assert.equal(describeStatus([row('a', { updatedAt: now - 7 * 60_000 }), row('b', { updatedAt: now - 6 * 60_000 })], { now }).label, 'All feeds stale');
+});
+
+test('a failing feed outranks a stale one, and a failure with no data anywhere has no time to show', () => {
+  const d = describeStatus([row('a', { updatedAt: now - 6 * 60_000 }), row('b', { error: 'HTTP 503' })], { now });
+  assert.equal(d.state, 'degraded');
+  const none = describeStatus([row('a', { error: 'x', updatedAt: null })], { now });
+  assert.equal(none.label, 'All feeds failing');
+  assert.equal(none.detail, '');
+});
+
+test('the clock in offline wording never breaks across a line', () => {
+  const d = describeStatus([row('a')], { serverDown: true, now });
+  assert.ok(!/\d \w*M/.test(d.banner), d.banner);
 });
 
 test('a dead server shows offline and a banner naming the last good data', () => {
