@@ -1,4 +1,5 @@
-import { el, num, timeAgo, timeUntil } from './format.js';
+import { el, timeAgo, timeUntil } from './format.js';
+import { setText, tweenNumber } from './tween.js';
 
 // The top bar: one chip per layer. The label part toggles the layer and leads with
 // the count; the health part (a ring on the swatch, the freshness text) is a button
@@ -123,7 +124,8 @@ export function createSummary(root, layers, { onToggle }) {
       const st = state(s);
       c.chip.dataset.health = st;
       c.chip.classList.toggle('error', st === 'error');
-      c.count.textContent = s?.updatedAt ? num(layer.count()) : s?.error || serverDown ? '–' : '…';
+      if (s?.updatedAt) tweenNumber(c.count, layer.count());
+      else setText(c.count, s?.error || serverDown ? '–' : '…');
       if (serverDown && !s?.updatedAt) c.ago.textContent = 'offline';
       else if (!s || s.loading) c.ago.textContent = 'loading';
       else if (s.error && !s.updatedAt) c.ago.textContent = 'failed';

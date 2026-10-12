@@ -1,4 +1,5 @@
-import { el, timeAgo } from './format.js';
+import { el, num, timeAgo } from './format.js';
+import { tweenNumber } from './tween.js';
 
 const PER_SOURCE_LIMIT = 300;
 const DISPLAY_LIMIT = 200;
@@ -55,7 +56,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     const now = Date.now();
     const visible = [...entries.values()].filter((e) => e.system || isVisible(e)).sort((a, b) => b.time - a.time);
     const shown = visible.slice(0, DISPLAY_LIMIT);
-    countEl.textContent = visible.length ? `(${visible.length})` : '';
+    tweenNumber(countEl, visible.length, { format: (v) => (v ? `(${num(v)})` : '') });
     if (!shown.length) {
       nodes.clear();
       if (loading) {
