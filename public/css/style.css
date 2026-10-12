@@ -137,22 +137,27 @@ button { font: inherit; color: inherit; }
   padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2); border-radius: 999px;
   background: var(--panel-2); border: 1px solid var(--border-strong); font-size: var(--text-sm); color: var(--muted);
   font-variant-numeric: tabular-nums; transition: border-color var(--dur-base) var(--ease); }
-.status .label { font-weight: 600; color: var(--text); }
+.status .label { font-weight: 600; font-size: var(--text-base); color: var(--text); }
 .status.stale .label { color: var(--warn); }
 .status.degraded .label, .status.offline .label { color: var(--bad); }
 .status.offline, .status.degraded { border-color: var(--bad-border); }
 
-/* Offline banner: slides in over the map while the server can't be reached */
-.banner { position: absolute; top: var(--space-3); left: 50%; z-index: 960; display: flex; align-items: center; gap: var(--space-2);
-  max-width: calc(100% - 2 * var(--space-3)); padding: var(--space-2) var(--space-4); border-radius: 999px;
+/* Offline banner: slides in over the map while the server can't be reached. It is
+   centred with a left/right box (not left:50%) so it can wrap on phones, and sits
+   under the detail card, which moves down to make room while the banner is up. */
+.banner { position: absolute; top: var(--space-3); left: var(--space-3); right: var(--space-3); width: fit-content; margin-inline: auto;
+  z-index: 940; display: flex; align-items: center; gap: var(--space-2); max-width: calc(100% - 2 * var(--space-3));
+  padding: var(--space-2) var(--space-4); border-radius: 999px;
   background: var(--glass); border: 1px solid var(--bad-border); box-shadow: var(--shadow-2); font-size: var(--text-md);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); white-space: nowrap;
-  opacity: 0; visibility: hidden; transform: translate(-50%, -8px);
+  opacity: 0; visibility: hidden; transform: translateY(-8px);
   transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease), visibility 0s linear var(--dur-base); }
-.banner.show { opacity: 1; visibility: visible; transform: translate(-50%, 0);
+.banner.show { opacity: 1; visibility: visible; transform: translateY(0);
   transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease), visibility 0s linear 0s; }
 .banner .dot { animation: pulse 1.2s infinite; }
-body.sidebar-open .banner { left: calc(50% + var(--sidebar-w) / 2); }
+body.sidebar-open .banner { left: calc(var(--sidebar-w) + var(--space-3)); }
+.detail { transition: top var(--dur-base) var(--ease); }
+.banner.show ~ .detail { top: calc(2 * var(--space-3) + 38px); }
 
 /* Layout: the map fills the window below the top bar; the sidebar slides over it */
 .layout { position: fixed; inset: var(--topbar-h) 0 0 0; }
@@ -249,20 +254,23 @@ body.sidebar-open .sidebar { transform: none; }
 
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {
+  .brand { font-size: 0; gap: 0; }
   .chip:not(.error) .meta .ago { display: none; }
+  .status .since { display: none; }
 }
 
 @media (max-width: 760px) {
   :root { --sidebar-w: min(86vw, 320px); }
   body.sidebar-open .map { left: 0; }
   .sidebar { box-shadow: var(--shadow-3); }
-  .brand { font-size: 0; gap: 0; }
-  .status .since { display: none; }
-  body.sidebar-open .banner { left: 50%; }
-  /* Narrow screens: let the sentence wrap as one run of text, dot inline */
-  .banner { display: block; white-space: normal; text-align: center; max-width: calc(100% - 2 * var(--space-4)); }
+  /* Narrow screens: the sentence wraps as one run of text with the dot inline, the
+     banner takes the card's corners, and it hides under the sidebar overlay (the
+     pill still says Offline). The sheet is at the bottom, so the card never moves. */
+  .banner { display: block; white-space: normal; text-align: center; border-radius: var(--radius-lg); }
   .banner .dot { display: inline-block; vertical-align: middle; margin-right: var(--space-2); }
   .banner .muted { margin-left: var(--space-1); }
+  body.sidebar-open .banner { left: var(--space-3); opacity: 0; visibility: hidden; }
+  .banner.show ~ .detail { top: auto; }
 }
 
 /* Phones, and landscape phones that are wider than 760px but short: the detail panel

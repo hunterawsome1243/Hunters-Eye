@@ -29,8 +29,9 @@ export function createSummary(root, layers, { onToggle }) {
   }
 
   function state(s) {
-    // The banner explains a dead server; chips just show their data is ageing.
-    if (serverDown) return s?.updatedAt ? 'stale' : 'error';
+    // The banner explains a dead server; chips just show their data is ageing
+    // (a source the browser is fetching itself carries on as normal).
+    if (serverDown && s?.via !== 'browser') return s?.updatedAt ? 'stale' : 'loading';
     if (!s || s.loading) return 'loading';
     if (s.error) return 'error';
     // Older than three refresh intervals means something upstream is stuck.
@@ -67,13 +68,9 @@ export function createSummary(root, layers, { onToggle }) {
   setInterval(render, 5000);
 
   return {
-    update(statuses) {
-      serverDown = false;
+    update(statuses, { serverDown: down = false } = {}) {
+      serverDown = down;
       lastStatus = new Map(statuses.map((s) => [s.id, s]));
-      render();
-    },
-    setServerDown() {
-      serverDown = true;
       render();
     },
     render,

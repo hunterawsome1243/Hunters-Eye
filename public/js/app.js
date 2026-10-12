@@ -136,6 +136,7 @@ async function loadSource(s) {
 // /api/config has said which sources may fall back, and to where.
 let fallbacks = createFallbacks();
 let lastSources = [];
+let serverDown = false;
 
 // Health, chips and layer hints follow what the map shows: the server's data, or
 // the browser's own while it stands in for a failing source.
@@ -143,8 +144,8 @@ function showStatus() {
   const shown = lastSources.map((s) => fallbacks.status(s));
   shown.forEach(noteHealth);
   for (const s of shown) byId.get(s.id)?.onStatus?.(s);
-  summary.update(shown);
-  liveStatus.update(shown);
+  summary.update(shown, { serverDown });
+  liveStatus.update(shown, { serverDown });
 }
 
 async function tick() {
@@ -154,12 +155,14 @@ async function tick() {
     clockOffset = serverTime - Date.now();
     if (sources.some((s) => s.loading)) delay = 1000; // first load: pick data up as soon as it lands
     lastSources = sources;
+    serverDown = false;
     await Promise.all(sources.map(loadSource));
     showStatus();
   } catch {
-    lastSources = [];
-    summary.setServerDown();
-    liveStatus.setServerDown();
+    // Keep the last rows: the chips show how old their data is, and a browser
+    // fallback that is still fetching keeps reporting through them.
+    serverDown = true;
+    showStatus();
   } finally {
     setTimeout(tick, delay);
   }
@@ -179,7 +182,7 @@ getJson('/api/config')
     if (basemap) addBasemap(basemap);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
-      onChange: () => lastSources.length && showStatus(),
+      onChange: () => (lastSources.length || serverDown) && showStatus(),
       options: (id) => byId.get(id)?.fetchOptions?.() ?? {},
     });
   })
