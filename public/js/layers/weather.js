@@ -2,12 +2,14 @@ import { dateTime, el, timeAgo } from '../ui/format.js';
 import { legend } from '../ui/legend.js';
 
 const COLOR = '#f43f5e';
+// A rose family that steps in lightness, with the fill opacity and the stroke weight
+// following severity, so the difference survives the alpha blend on the map.
 const SEVERITY = {
-  Extreme: { color: '#ff4d8d', rank: 0 },
-  Severe: { color: '#f43f5e', rank: 1 },
-  Moderate: { color: '#d97787', rank: 2 },
-  Minor: { color: '#a8818c', rank: 3 },
-  Unknown: { color: '#8b8790', rank: 4 },
+  Extreme: { color: '#ff8fc6', fill: 0.34, weight: 2, rank: 0 },
+  Severe: { color: '#e11d48', fill: 0.26, weight: 1, rank: 1 },
+  Moderate: { color: '#c9707e', fill: 0.22, weight: 1, rank: 2 },
+  Minor: { color: '#c7a6ae', fill: 0.2, weight: 1, rank: 3 },
+  Unknown: { color: '#605d66', fill: 0.14, weight: 1, rank: 4 },
 };
 
 export default function create(ctx) {
@@ -40,8 +42,8 @@ export default function create(ctx) {
   }
 
   function style(a, isSelected) {
-    const { color } = SEVERITY[a.severity] || SEVERITY.Unknown;
-    return { color: isSelected ? '#ffffff' : color, weight: isSelected ? 2.5 : 1, opacity: 0.9, fillColor: color, fillOpacity: isSelected ? 0.4 : 0.22 };
+    const { color, fill, weight } = SEVERITY[a.severity] || SEVERITY.Unknown;
+    return { color: isSelected ? '#ffffff' : color, weight: isSelected ? 2.5 : weight, opacity: 0.9, fillColor: color, fillOpacity: isSelected ? 0.4 : fill };
   }
 
   function showDetail(a) {

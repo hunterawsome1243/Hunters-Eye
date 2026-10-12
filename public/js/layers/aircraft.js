@@ -2,7 +2,7 @@ import { putJson } from '../api.js';
 import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
 import { legend } from '../ui/legend.js';
 
-const COLOR = '#38bdf8';
+const COLOR = '#22d3ee';
 const MAX_EXTRAPOLATE_S = 300;
 const HIT_RADIUS = 10;
 const EMERGENCY = { '7500': 'Hijack (7500)', '7600': 'Radio failure (7600)', '7700': 'General emergency (7700)' };
@@ -14,13 +14,15 @@ const CATEGORY = ['No info', 'No ADS-B category', 'Light', 'Small', 'Large', 'Hi
 const PLANE = new Path2D('M0 -7 L1.3 -2.2 L7 1.2 L7 2.4 L1.2 0.9 L0.9 4.6 L2.6 6 L2.6 7 L0 6.2 L-2.6 7 L-2.6 6 L-0.9 4.6 L-1.2 0.9 L-7 2.4 L-7 1.2 L-1.3 -2.2 Z');
 
 // Plane colour by altitude (metres), ground first; also the legend under the filter.
+// A cyan family (the UI's own accent is sky, so chrome never reads as a plane) with
+// lightness steps wide enough to tell apart on a 10px glyph.
 const GROUND_COLOR = '#6b7280';
 const ALTITUDE_BANDS = [
   [0, GROUND_COLOR, 'on ground'],
-  [3000, '#0ea5e9', 'below 3 km'],
-  [7000, '#38bdf8', '3–7 km'],
-  [10000, '#7dd3fc', '7–10 km'],
-  [Infinity, '#e0f2fe', 'above 10 km'],
+  [3000, '#0e7490', 'below 3 km'],
+  [7000, '#06b6d4', '3–7 km'],
+  [10000, '#67e8f9', '7–10 km'],
+  [Infinity, '#ecfeff', 'above 10 km'],
 ];
 function altitudeColor(a) {
   if (a.onGround) return GROUND_COLOR;
