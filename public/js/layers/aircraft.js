@@ -188,6 +188,7 @@ export default function create(ctx) {
       ],
       notes: a.onGround || !a.velocity ? '' : 'Position is estimated from the last report using speed and heading.',
       link: { href: `https://globe.adsbexchange.com/?icao=${a.icao24}`, label: 'Track on ADS-B Exchange ↗' },
+      latlng: [lat, lon],
     });
   }
 

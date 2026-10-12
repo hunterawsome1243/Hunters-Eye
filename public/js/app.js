@@ -46,16 +46,36 @@ sidebarToggle.addEventListener('click', () => setSidebar(!document.body.classLis
 
 const layers = [];
 const byId = new Map();
-const detail = createDetailPanel(document.getElementById('detail'), {
-  onClose: () => layers.forEach((l) => l.clearSelection()),
-});
 const feed = createFeed(document.getElementById('feed'), document.getElementById('feed-count'), {
   isVisible: (entry) => {
     const layer = byId.get(entry.source);
     return !layer || (map.hasLayer(layer.layer) && (layer.acceptsFeed?.(entry) ?? true));
   },
+  // Aircraft feed ids carry the squawk after the icao ("aircraft:abc123:7700").
+  isCurrent: (entry) => !!detail.key && (entry.id === detail.key || entry.id.startsWith(`${detail.key}:`)),
+});
+const detail = createDetailPanel(document.getElementById('detail'), {
+  onShow: ({ latlng, color }) => {
+    feed.refresh({ reveal: true });
+    if (latlng) ripple(latlng, color);
+  },
+  onClose: () => {
+    layers.forEach((l) => l.clearSelection());
+    feed.refresh();
+  },
 });
 const filtersEl = document.getElementById('filters');
+
+// A short pulse on the map where the selected point sits, so a feed click shows
+// where it landed (alert areas highlight their outline instead).
+function ripple(latlng, color) {
+  const marker = L.marker(latlng, {
+    icon: L.divIcon({ className: 'ripple', html: `<i style="--c:${color}"></i>`, iconSize: [24, 24] }),
+    interactive: false,
+    keyboard: false,
+  }).addTo(map);
+  setTimeout(() => map.removeLayer(marker), 1500);
+}
 
 let clockOffset = 0; // server clock minus browser clock, from /api/status
 

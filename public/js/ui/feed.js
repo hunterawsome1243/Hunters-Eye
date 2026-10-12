@@ -5,10 +5,12 @@ const DISPLAY_LIMIT = 200;
 
 // Live event feed shared by every layer, newest first.
 // An entry: { id, source, time, title, subtitle, color, system?, onClick? }.
-// isVisible(entry) lets layers hide entries (layer off, below a filter threshold).
-export function createFeed(listEl, countEl, { isVisible = () => true } = {}) {
+// isVisible(entry) lets layers hide entries (layer off, below a filter threshold);
+// isCurrent(entry) marks the row whose item the detail panel is showing.
+export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false } = {}) {
   const entries = new Map();
   let renderQueued = false;
+  let revealQueued = false;
 
   function prune(source) {
     const mine = [...entries.values()].filter((e) => e.source === source).sort((a, b) => b.time - a.time);
@@ -28,7 +30,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true } = {}) {
     listEl.replaceChildren(
       ...shown.map((e) =>
         el('li', { class: e.system ? 'system' : null },
-          el('button', { type: 'button', onclick: e.onClick, disabled: !e.onClick, title: e.subtitle || e.title },
+          el('button', { type: 'button', onclick: e.onClick, disabled: !e.onClick, title: e.subtitle || e.title, 'aria-current': isCurrent(e) ? 'true' : null },
             el('span', { class: 'swatch', style: `background:${e.color}` }),
             el('span', { class: 'title' }, e.title),
             el('span', { class: 'time' }, timeAgo(e.time, now)),
@@ -37,9 +39,15 @@ export function createFeed(listEl, countEl, { isVisible = () => true } = {}) {
         ),
       ),
     );
+    if (revealQueued) {
+      revealQueued = false;
+      listEl.querySelector('[aria-current]')?.scrollIntoView({ block: 'nearest' });
+    }
   }
 
-  function refresh() {
+  // reveal: scroll the current row into view once rendered (a map click selected it).
+  function refresh({ reveal = false } = {}) {
+    revealQueued ||= reveal;
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(render);

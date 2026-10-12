@@ -71,6 +71,7 @@ export default function create(ctx) {
         ['Tsunami flag', q.tsunami ? 'Yes' : null],
       ],
       link: q.url ? { href: q.url, label: 'Open on USGS ↗' } : null,
+      latlng: [q.lat, nearLon(q.lon, map.getCenter().lng)],
     });
   }
 
