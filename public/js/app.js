@@ -67,9 +67,9 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
   isCurrent: (entry) => !!detail.key && (entry.id === detail.key || entry.id.startsWith(`${detail.key}:`)),
 });
 const detail = createDetailPanel(document.getElementById('detail'), {
-  onShow: ({ latlng, color }) => {
+  onShow: ({ latlng, color, radius }) => {
     feed.refresh({ reveal: true });
-    if (latlng) ripple(latlng, color);
+    if (latlng) ripple(latlng, color, radius);
   },
   onClose: () => {
     layers.forEach((l) => l.clearSelection());
@@ -79,10 +79,12 @@ const detail = createDetailPanel(document.getElementById('detail'), {
 const filtersEl = document.getElementById('filters');
 
 // A short pulse on the map where the selected point sits, so a feed click shows
-// where it landed (alert areas highlight their outline instead).
-function ripple(latlng, color) {
+// where it landed (alert areas highlight their outline instead). radius is the
+// marker's, so the ring starts just outside it.
+function ripple(latlng, color, radius = 8) {
+  const size = Math.round(radius * 2 + 8);
   const marker = L.marker(latlng, {
-    icon: L.divIcon({ className: 'ripple', html: `<i style="--c:${color}"></i>`, iconSize: [24, 24] }),
+    icon: L.divIcon({ className: 'ripple', html: `<i style="--c:${color}"></i>`, iconSize: [size, size] }),
     interactive: false,
     keyboard: false,
   }).addTo(map);

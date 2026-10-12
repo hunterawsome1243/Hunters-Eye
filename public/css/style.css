@@ -324,7 +324,7 @@ body.sidebar-open .sidebar { transform: none; }
 .detail.snap { transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease), top var(--dur-base) var(--ease); }
 @keyframes detail-in { from { opacity: 0; transform: translateY(-8px); } }
 @keyframes detail-out { to { opacity: 0; transform: translateY(-8px); } }
-.detail-head { position: sticky; top: 0; z-index: 1; background: var(--glass-card);
+.detail-head { position: sticky; top: 0; z-index: 1; background: var(--panel); box-shadow: 0 1px 0 var(--border);
   display: grid; grid-template-columns: 12px 1fr auto; gap: var(--space-2); align-items: start;
   padding: var(--space-3) var(--space-2) var(--space-2) var(--space-4); }
 .detail-swatch { width: 12px; height: 12px; border-radius: var(--radius-xs); margin-top: 4px; }
@@ -339,10 +339,13 @@ body.sidebar-open .sidebar { transform: none; }
 .detail-extra a { color: var(--accent); border-radius: var(--radius-xs); }
 .detail-extra a:hover { color: var(--accent-strong); text-decoration-thickness: 2px; }
 
-/* A pulse on the map where a selected point sits (app.js ripple) */
+/* A pulse on the map where a selected point sits (app.js ripple): the icon box is the
+   marker's own size, and the ring grows out from its edge in a light stroke so it reads
+   over a filled marker of any colour. Reduced motion shows a still ring instead. */
 .ripple { pointer-events: none; }
-.ripple i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--c); opacity: 0; animation: ripple 700ms ease-out 2; }
-@keyframes ripple { from { transform: scale(0.25); opacity: 0.9; } to { transform: scale(2.2); opacity: 0; } }
+.ripple i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--text); box-shadow: 0 0 0 1px var(--c) inset; opacity: 0; animation: ripple 700ms ease-out 2; }
+@keyframes ripple { from { transform: scale(1); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ripple i { animation: none; opacity: 0.8; transform: scale(1.6); } }
 
 /* Leaflet, restyled for the dark theme */
 .leaflet-container { background: var(--bg); font: inherit; }

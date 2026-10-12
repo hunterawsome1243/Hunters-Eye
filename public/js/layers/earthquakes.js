@@ -73,6 +73,7 @@ export default function create(ctx) {
       ],
       link: q.url ? { href: q.url, label: 'Open on USGS ↗' } : null,
       latlng: [q.lat, nearLon(q.lon, map.getCenter().lng)],
+      radius: radiusFor(q.mag),
     });
   }
 

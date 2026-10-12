@@ -50,29 +50,36 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
     if (e.key === 'Escape') hide();
   });
 
-  // On phones the panel is a bottom sheet: dragging its header down closes it.
+  // On phones the panel is a bottom sheet: dragging its header down from the top
+  // closes it; dragging up (or down while scrolled) scrolls the sheet instead.
   let drag = null;
   head.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch' || !SHEET.matches || closeBtn.contains(e.target)) return;
-    drag = { id: e.pointerId, startY: e.clientY, dy: 0, moving: false };
+    drag = { id: e.pointerId, startX: e.clientX, startY: e.clientY, startTop: root.scrollTop, dy: 0, mode: null };
   });
   head.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    drag.dy = Math.max(0, e.clientY - drag.startY);
-    if (!drag.moving && drag.dy > 6) {
-      drag.moving = true;
+    const dx = e.clientX - drag.startX;
+    const raw = e.clientY - drag.startY;
+    if (!drag.mode) {
+      if (Math.abs(raw) <= 6 || Math.abs(raw) < Math.abs(dx)) return; // not a vertical swipe yet
+      drag.mode = raw > 0 && drag.startTop === 0 ? 'dismiss' : 'scroll';
       try { head.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
-      root.style.transition = 'none';
+      if (drag.mode === 'dismiss') root.style.transition = 'none';
     }
-    if (!drag.moving) return;
+    if (drag.mode === 'scroll') {
+      root.scrollTop = drag.startTop - raw;
+      return;
+    }
+    drag.dy = Math.max(0, raw);
     root.style.transform = `translateY(${drag.dy}px)`;
     root.style.opacity = String(Math.max(0.4, 1 - drag.dy / 320));
   });
   function endDrag(e) {
     if (!drag || e.pointerId !== drag.id) return;
-    const { dy, moving } = drag;
+    const { dy, mode } = drag;
     drag = null;
-    if (!moving) return;
+    if (mode !== 'dismiss') return;
     root.style.transition = '';
     if (dy > 72) {
       // The exit animation carries on from where the finger left it: the inline
@@ -95,7 +102,7 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   }
 
   return {
-    show({ key, color, kind, heading, fields = [], notes = '', link, latlng = null }) {
+    show({ key, color, kind, heading, fields = [], notes = '', link, latlng = null, radius }) {
       const changed = key !== currentKey;
       settle(); // reopened mid-close: just keep it
       currentKey = key;
@@ -109,7 +116,7 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
       root.hidden = false;
       if (changed) {
         root.scrollTop = 0;
-        onShow?.({ key, color, latlng });
+        onShow?.({ key, color, latlng, radius });
       }
     },
     hide,

@@ -125,6 +125,7 @@ export default function create(ctx) {
       notes: 'Dashed line: last half orbit. Solid line: next full orbit. Circle: area from which it is above the horizon.',
       link: { href: `https://www.n2yo.com/satellite/?s=${encodeURIComponent(sat.id)}`, label: 'Pass predictions on N2YO ↗' },
       latlng: pos ? [pos.lat, nearLon(pos.lon, map.getCenter().lng)] : null,
+      radius: sat.notable ? 6 : 3.5,
     });
   }
 
