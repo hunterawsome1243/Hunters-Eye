@@ -17,9 +17,9 @@ const PLANE = new Path2D('M0 -7 L1.3 -2.2 L7 1.2 L7 2.4 L1.2 0.9 L0.9 4.6 L2.6 6
 const GROUND_COLOR = '#6b7280';
 const ALTITUDE_BANDS = [
   [0, GROUND_COLOR, 'on ground'],
-  [3000, '#5eead4', 'below 3 km'],
+  [3000, '#0ea5e9', 'below 3 km'],
   [7000, '#38bdf8', '3–7 km'],
-  [10000, '#a5b4fc', '7–10 km'],
+  [10000, '#7dd3fc', '7–10 km'],
   [Infinity, '#e0f2fe', 'above 10 km'],
 ];
 function altitudeColor(a) {

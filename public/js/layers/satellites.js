@@ -1,6 +1,6 @@
 import { dateTime, el, latLon, nearLon, num, timeAgo } from '../ui/format.js';
 
-const COLOR = '#e879f9';
+const COLOR = '#a78bfa';
 const EARTH_RADIUS_KM = 6371;
 const TICK_MS = 1000;
 const TRACK_STEP_S = 30;

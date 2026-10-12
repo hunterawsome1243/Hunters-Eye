@@ -3,10 +3,10 @@ import { legend } from '../ui/legend.js';
 
 const HOUR = 3_600_000;
 const AGE_COLORS = [
-  [HOUR, '#ff4d4d', 'past hour'],
-  [6 * HOUR, '#ff9f1c', 'past 6 hours'],
-  [24 * HOUR, '#ffd93d', 'past day'],
-  [Infinity, '#8a94a3', 'older'],
+  [HOUR, '#ffcc4d', 'past hour'],
+  [6 * HOUR, '#f5a524', 'past 6 hours'],
+  [24 * HOUR, '#c47f1f', 'past day'],
+  [Infinity, '#8a7a66', 'older'],
 ];
 
 export const ageColor = (time, now = Date.now()) => AGE_COLORS.find(([max]) => now - time < max)[1];
@@ -153,7 +153,7 @@ export default function create(ctx) {
     id: 'earthquakes',
     name: 'Earthquakes',
     source: 'USGS',
-    color: '#ff9f1c',
+    color: '#f5a524',
     layer: group,
     visible: true,
     update,

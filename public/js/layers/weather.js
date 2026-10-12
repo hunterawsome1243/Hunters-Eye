@@ -3,11 +3,11 @@ import { legend } from '../ui/legend.js';
 
 const COLOR = '#f43f5e';
 const SEVERITY = {
-  Extreme: { color: '#d946ef', rank: 0 },
-  Severe: { color: '#ef4444', rank: 1 },
-  Moderate: { color: '#f97316', rank: 2 },
-  Minor: { color: '#eab308', rank: 3 },
-  Unknown: { color: '#94a3b8', rank: 4 },
+  Extreme: { color: '#ff4d8d', rank: 0 },
+  Severe: { color: '#f43f5e', rank: 1 },
+  Moderate: { color: '#d97787', rank: 2 },
+  Minor: { color: '#a8818c', rank: 3 },
+  Unknown: { color: '#8b8790', rank: 4 },
 };
 
 export default function create(ctx) {
