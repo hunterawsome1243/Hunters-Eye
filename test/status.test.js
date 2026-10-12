@@ -16,8 +16,10 @@ test('all sources fresh reads as live with the newest update time', () => {
 test('nothing loaded yet is connecting, partly loaded is loading', () => {
   assert.equal(describeStatus([], { now }).state, 'loading');
   assert.equal(describeStatus([row('a', { loading: true, updatedAt: null })], { now }).label, 'Connecting');
+  assert.equal(describeStatus([], { now }).connecting, true);
   const d = describeStatus([row('a'), row('b', { loading: true, updatedAt: null })], { now });
   assert.equal(d.state, 'loading');
+  assert.equal(d.connecting, undefined);
   assert.equal(d.label, 'Loading');
 });
 

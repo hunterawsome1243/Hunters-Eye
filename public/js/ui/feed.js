@@ -21,6 +21,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
   const nodes = new Map(); // id -> { li, button, time, entry }
   let renderQueued = false;
   let revealQueued = false;
+  let loading = true; // skeleton rows until a feed has answered (app.js setLoading)
   let settledAt = null; // when the first non-empty render happened
 
   function prune(source) {
@@ -57,7 +58,12 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     countEl.textContent = visible.length ? `(${visible.length})` : '';
     if (!shown.length) {
       nodes.clear();
-      listEl.replaceChildren(el('li', { class: 'feed-empty' }, 'Waiting for events…'));
+      if (loading) {
+        listEl.replaceChildren(...[62, 48, 70, 55].map((w, i) =>
+          el('li', { class: 'skeleton', style: `--i:${i};--w:${w}%`, 'aria-hidden': 'true' }, el('i', { class: 'swatch' }), el('i', { class: 't' }), el('i', { class: 'time' }), el('i', { class: 's' }))));
+      } else {
+        listEl.replaceChildren(el('li', { class: 'feed-empty' }, 'Waiting for events…'));
+      }
       return;
     }
     // The first row still in view is the anchor; after the shuffle, scroll so it hasn't moved.
@@ -118,6 +124,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
   }
 
   setInterval(refresh, 30_000); // keep relative times current
+  refresh(); // skeleton rows from the first frame
 
   return {
     add(entry) {
@@ -128,6 +135,11 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     },
     remove(id) {
       if (entries.delete(id)) refresh();
+    },
+    setLoading(on) {
+      if (loading === on) return;
+      loading = on;
+      refresh();
     },
     refresh,
   };

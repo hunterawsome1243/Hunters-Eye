@@ -178,7 +178,9 @@ function showStatus() {
   shown.forEach(noteHealth);
   for (const s of shown) byId.get(s.id)?.onStatus?.(s);
   summary.update(shown, { serverDown });
-  liveStatus.update(shown, { serverDown });
+  const d = liveStatus.update(shown, { serverDown });
+  document.getElementById('connecting').classList.toggle('show', !!d.connecting);
+  feed.setLoading(!!d.connecting);
 }
 
 async function tick() {

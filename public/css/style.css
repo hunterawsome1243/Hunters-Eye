@@ -192,6 +192,16 @@ button { font: inherit; color: inherit; }
   transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease), visibility 0s linear 0s; }
 .banner .dot { animation: pulse 1.2s infinite; }
 body.sidebar-open .banner { left: calc(var(--sidebar-w) + var(--space-3)); }
+
+/* "Connecting to feeds…" in the middle of the map until the first source answers,
+   then it dissolves (a slower fade than usual, on purpose). The status pill carries
+   the same word for assistive tech, so this one is decorative. */
+.connecting { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 930; display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4); border-radius: 999px; background: var(--glass); border: 1px solid var(--border-strong); box-shadow: var(--shadow-2);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--text-2); font-size: var(--text-md); white-space: nowrap; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity 500ms var(--ease), visibility 0s linear 500ms; }
+.connecting.show { opacity: 1; visibility: visible; transition: opacity var(--dur-base) var(--ease), visibility 0s linear 0s; }
+body.sidebar-open .connecting { left: calc(50% + var(--sidebar-w) / 2); }
 .detail { transition: top var(--dur-base) var(--ease); }
 .banner.show ~ .detail { top: calc(2 * var(--space-3) + 38px); }
 
@@ -293,6 +303,15 @@ body.sidebar-open .sidebar { transform: none; }
 .feed .sub { grid-column: 2 / 4; color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed .system .title { color: var(--muted); font-weight: 400; }
 .feed-empty { color: var(--muted); padding: var(--space-3) var(--space-4); }
+/* Skeleton rows while the feeds are still connecting: the shape of a row, breathing */
+.feed .skeleton { display: grid; grid-template-columns: 10px 1fr auto; gap: var(--space-1) var(--space-2); padding: var(--space-2) var(--space-4);
+  animation: breathe 1.6s var(--ease) infinite; animation-delay: calc(var(--i) * 150ms); }
+.feed .skeleton i { display: block; background: var(--panel-3); border-radius: 5px; }
+.feed .skeleton .swatch { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+.feed .skeleton .t { height: 10px; width: var(--w, 55%); margin-top: 4px; }
+.feed .skeleton .time { height: 8px; width: 40px; margin-top: 5px; justify-self: end; }
+.feed .skeleton .s { grid-column: 2 / 4; height: 8px; width: calc(var(--w, 55%) + 20%); }
+@keyframes breathe { 50% { opacity: 0.45; } }
 
 /* Detail panel: a floating card on wide screens, a bottom sheet on phones. It fades in
    with a small slide; closing plays the reverse, then detail.js hides it. The header
@@ -378,6 +397,7 @@ body.sidebar-open .sidebar { transform: none; }
   .banner .dot { display: inline-block; vertical-align: middle; margin-right: var(--space-2); }
   .banner .muted { margin-left: var(--space-1); }
   body.sidebar-open .banner { left: var(--space-3); opacity: 0; visibility: hidden; }
+  body.sidebar-open .connecting { left: 50%; }
   .banner.show ~ .detail { top: auto; }
 }
 

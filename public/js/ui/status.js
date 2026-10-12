@@ -19,7 +19,7 @@ export function describeStatus(statuses, { serverDown = false, now = Date.now() 
       banner: latest ? `Can't reach the server. Showing data from ${clock(latest)}.` : "Can't reach the server.",
     };
   }
-  if (!statuses.length || statuses.every((s) => s.loading)) return { state: 'loading', label: 'Connecting', detail: '', banner: null };
+  if (!statuses.length || statuses.every((s) => s.loading)) return { state: 'loading', label: 'Connecting', detail: '', banner: null, connecting: true };
   const failing = statuses.filter((s) => s.error && !s.loading);
   if (failing.length) {
     const n = failing.length;
@@ -54,6 +54,7 @@ export function createStatus(pill, banner) {
 
   let statuses = [];
   let serverDown = false;
+  let last = null;
   const DOT = { live: 'ok', loading: 'loading', stale: 'stale', degraded: 'error', offline: 'error' };
 
   // Only write what changed: the banner is role="alert", and a rewrite of the same
@@ -62,6 +63,7 @@ export function createStatus(pill, banner) {
 
   function render() {
     const d = describeStatus(statuses, { serverDown });
+    last = d;
     pill.className = `status ${d.state}`;
     dot.className = `dot ${DOT[d.state]}`;
     set(label, d.label);
@@ -78,6 +80,7 @@ export function createStatus(pill, banner) {
       serverDown = down;
       statuses = next;
       render();
+      return last;
     },
     render,
   };
