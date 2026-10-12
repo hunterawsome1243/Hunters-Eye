@@ -20,6 +20,7 @@ const ZONE_FILE = CACHE_DIR ? join(CACHE_DIR, 'nws-zones.json') : null;
 const ZONES_PER_CYCLE = 300;
 const ZONE_CONCURRENCY = 4;
 const ZONE_RETRY_MS = 6 * 60 * 60 * 1000;
+const ZONE_TIME_BUDGET_MS = 8000; // return alerts promptly; keep filling outlines next cycle
 const ACCEPT = { Accept: 'application/geo+json' };
 
 export const SEVERITY_ORDER = ['Extreme', 'Severe', 'Moderate', 'Minor', 'Unknown'];
@@ -46,9 +47,10 @@ const zoneUrl = (url) => (url.startsWith(API_ORIGIN) ? ZONE_ORIGIN + url.slice(A
 
 async function loadZones(urls) {
   const queue = [...urls];
+  const deadline = Date.now() + ZONE_TIME_BUDGET_MS;
   let loaded = 0;
   async function worker() {
-    while (queue.length) {
+    while (queue.length && Date.now() < deadline) {
       const url = queue.shift();
       try {
         const zone = await getJson(zoneUrl(url), { headers: ACCEPT, timeoutMs: 15_000 });
@@ -61,7 +63,7 @@ async function loadZones(urls) {
   }
   await Promise.all(Array.from({ length: ZONE_CONCURRENCY }, worker));
   if (loaded) saveZones();
-  return loaded;
+  return queue.length; // outlines not attempted this time
 }
 
 const trim = (s, n) => (s && s.length > n ? `${s.slice(0, n).trimEnd()}…` : s || null);
@@ -110,8 +112,8 @@ export default {
         wanted.push(url);
       }
     }
-    await loadZones(wanted.slice(0, ZONES_PER_CYCLE));
-    const pending = Math.max(0, wanted.length - ZONES_PER_CYCLE);
+    const skipped = await loadZones(wanted.slice(0, ZONES_PER_CYCLE));
+    const pending = Math.max(0, wanted.length - ZONES_PER_CYCLE) + skipped;
 
     // Many alerts share zones (a heat advisory and a red flag warning over the same
     // counties), so outlines are sent once, keyed by zone, and alerts refer to them.

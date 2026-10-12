@@ -3,10 +3,12 @@ import { createApp } from './app.js';
 import { sources } from './sources/index.js';
 
 const port = Number(process.env.PORT) || 3000;
+// Local only by default; set HOST=0.0.0.0 to reach it from other devices on your network.
+const host = process.env.HOST || '127.0.0.1';
 const { app, pollers } = createApp(sources);
 
-const server = app.listen(port, () => {
-  console.log(`Hunter's Eye running at http://localhost:${port}`);
+const server = app.listen(port, host, () => {
+  console.log(`Hunter's Eye running at http://localhost:${port}${host === '127.0.0.1' ? '' : ` (listening on ${host})`}`);
   for (const p of pollers.values()) {
     console.log(`  ${p.source.name.padEnd(16)} refresh every ${Math.round(p.intervalMs / 1000)}s${p.source.describe ? ` (${p.source.describe()})` : ''}`);
   }

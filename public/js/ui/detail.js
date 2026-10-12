@@ -32,7 +32,7 @@ export function createDetailPanel(root, { onClose } = {}) {
       rows.replaceChildren(...fields.filter(([, v]) => v != null && v !== '').flatMap(([k, v]) => [el('dt', {}, k), el('dd', {}, v)]));
       extra.replaceChildren();
       if (notes) extra.append(notes);
-      if (link) extra.append(notes ? '\n\n' : '', el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));
+      if (link && /^https?:\/\//.test(link.href)) extra.append(notes ? '\n\n' : '', el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));
       root.hidden = false;
     },
     hide,
