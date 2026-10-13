@@ -39,6 +39,7 @@ export function quakeFeature(q, now = Date.now()) {
 
 const SRC = 'he-earthquakes';
 const HALO = 'he-earthquakes-halo';
+const OUTLINE = 'he-earthquakes-outline';
 const DOTS = 'he-earthquakes';
 
 export default function create(ctx) {
@@ -71,6 +72,7 @@ export default function create(ctx) {
   function applyFilter() {
     if (!canEdit()) return;
     if (map.getLayer(HALO)) map.setFilter(HALO, haloFilter(minMag));
+    if (map.getLayer(OUTLINE)) map.setFilter(OUTLINE, magFilter(minMag));
     if (map.getLayer(DOTS)) map.setFilter(DOTS, magFilter(minMag));
   }
 
@@ -194,6 +196,23 @@ export default function create(ctx) {
         'circle-pitch-alignment': 'map',
       },
     }, 'points');
+    // A thin dark rim (the page --bg) just outside each dot's ring: lost on the dark
+    // map, it keeps the age ramp readable over bright imagery (desert, city, snow).
+    ctx.addLayer({
+      id: OUTLINE,
+      type: 'circle',
+      source: SRC,
+      filter: magFilter(minMag),
+      paint: {
+        'circle-radius': ['get', 'r'],
+        'circle-color': 'rgba(0,0,0,0)',
+        'circle-stroke-color': '#0a0d12',
+        'circle-stroke-width': ['case', SEL, 4, 2.5],
+        'circle-stroke-opacity': 0.75,
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport',
+      },
+    }, 'points');
     ctx.addLayer({
       id: DOTS,
       type: 'circle',
@@ -221,7 +240,7 @@ export default function create(ctx) {
     source: 'USGS',
     color: '#f5a524',
     visible: true,
-    layerIds: [HALO, DOTS],
+    layerIds: [HALO, OUTLINE, DOTS],
     interactive: [{ layer: DOTS, priority: 40 }],
     mount,
     update,

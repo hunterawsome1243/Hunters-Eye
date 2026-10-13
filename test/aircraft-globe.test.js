@@ -58,3 +58,23 @@ test('boxInside says whether a view still sits inside the padded push box', () =
   assert.ok(!boxInside({ lamin: 42, lamax: 51, lomin: 5, lomax: 15 }, pushed));
   assert.ok(!boxInside({ lamin: 42, lamax: 48, lomin: -1, lomax: 15 }, pushed));
 });
+
+test('the plane image is a distance field with room for its outline', async () => {
+  const { planeImage } = await import('../public/js/globe/icons.js');
+  const { width, height, data } = planeImage();
+  assert.equal(width, 40);
+  assert.equal(height, 40);
+  const alpha = (col, row) => data[(row * width + col) * 4 + 3];
+  // The fuselage is inside (above the 0.75 edge), the corners far outside.
+  assert.ok(alpha(20, 20) > 192, `centre ${alpha(20, 20)}`);
+  for (const [c, r] of [[0, 0], [39, 0], [0, 39], [39, 39]]) assert.equal(alpha(c, r), 0);
+  // The nose tip sits at y -7 (texel row 6): just inside above it, the edge near 192.
+  assert.ok(Math.abs(alpha(20, 6) - 192) <= 24, `nose edge ${alpha(20, 6)}`);
+  // Every border texel is at least 4 texels outside the plane, so a 2.4 px halo at
+  // icon-size 0.75 is never clipped by the image edge.
+  for (let i = 0; i < width; i++) {
+    for (const [c, r] of [[i, 0], [i, height - 1], [0, i], [width - 1, i]]) assert.ok(alpha(c, r) <= 255 * (0.75 - 4 / 8), `border ${c},${r}`);
+  }
+  // Left and right wings mirror each other.
+  for (let row = 0; row < height; row++) assert.equal(alpha(5, row), alpha(width - 1 - 5, row));
+});

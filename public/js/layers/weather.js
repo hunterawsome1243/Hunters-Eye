@@ -21,7 +21,10 @@ const centreOf = (polygons) => {
 
 const SRC = 'he-weather';
 const FILL = 'he-weather-fill';
+const OUTLINE = 'he-weather-outline';
 const LINE = 'he-weather-line';
+// The edge line's width: thicker for Extreme, and while selected.
+const EDGE_WIDTH = ['case', SEL, 2.5, ['get', 'weight']];
 // Alerts at or below this rank pass the severity filter.
 export const rankFilter = (maxRank) => ['<=', ['get', 'rank'], maxRank];
 
@@ -67,6 +70,7 @@ export default function create(ctx) {
     if (!live()) return;
     const filter = rankFilter(maxRank);
     map.setFilter(FILL, filter);
+    map.setFilter(OUTLINE, filter);
     map.setFilter(LINE, filter);
   }
 
@@ -91,10 +95,21 @@ export default function create(ctx) {
       layout: { 'fill-sort-key': ['-', 4, ['get', 'rank']] },
       paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', SEL, 0.4, ['get', 'fill']] },
     }, 'shapes');
+    // A thin dark rim (the page --bg) just outside each edge: lost on the dark map, it
+    // keeps the rose edges readable over bright imagery (desert, city, snow). It sits
+    // outside so the fill keeps its colour: the tiler winds outer rings clockwise on
+    // screen and holes the other way, so a negative offset always points away from the fill.
+    ctx.addLayer({
+      id: OUTLINE, type: 'line', source: SRC, filter: rankFilter(maxRank),
+      paint: {
+        'line-color': '#0a0d12', 'line-width': 1.5, 'line-opacity': 0.75,
+        'line-offset': ['-', 0, ['+', ['/', EDGE_WIDTH, 2], 0.75]],
+      },
+    }, 'shapes');
     ctx.addLayer({
       id: LINE, type: 'line', source: SRC, filter: rankFilter(maxRank),
       layout: { 'line-sort-key': ['-', 4, ['get', 'rank']] },
-      paint: { 'line-color': ['case', SEL, '#ffffff', ['get', 'color']], 'line-width': ['case', SEL, 2.5, ['get', 'weight']], 'line-opacity': 0.9 },
+      paint: { 'line-color': ['case', SEL, '#ffffff', ['get', 'color']], 'line-width': EDGE_WIDTH, 'line-opacity': 0.9 },
     }, 'shapes');
     map?.getSource(SRC)?.setData(last);
     applyFilter();
@@ -197,7 +212,7 @@ export default function create(ctx) {
     source: 'US National Weather Service',
     color: COLOR,
     visible: true,
-    layerIds: [FILL, LINE],
+    layerIds: [FILL, OUTLINE, LINE],
     interactive: [{ layer: FILL, priority: 10 }],
     mount,
     update,

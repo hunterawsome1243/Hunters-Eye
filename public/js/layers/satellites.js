@@ -16,6 +16,7 @@ const L_FOOT_FILL = 'he-satellites-footprint-fill';
 const L_FOOT_LINE = 'he-satellites-footprint-line';
 const L_TRACK_PAST = 'he-satellites-track-past';
 const L_TRACK_NEXT = 'he-satellites-track-next';
+const L_OUTLINE = 'he-satellites-outline';
 const L_DOTS = 'he-satellites';
 const L_LABEL = 'he-satellites-label';
 
@@ -97,6 +98,7 @@ export default function create(ctx) {
 
   function applyFilter() {
     if (!styleReady(L_DOTS)) return;
+    map.setFilter(L_OUTLINE, notableFilter(notableOnly, selected));
     map.setFilter(L_DOTS, notableFilter(notableOnly, selected));
   }
 
@@ -123,6 +125,19 @@ export default function create(ctx) {
       paint: { 'line-color': COLOR, 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.75, 8, 3], 'line-opacity': 0.85 },
     }, 'tracks');
     const filter = notableFilter(notableOnly, selected);
+    // A thin dark rim (the page --bg) just outside each dot: lost on the dark map, it
+    // keeps the violet readable over bright imagery (desert, city, snow).
+    ctx.addLayer({
+      id: L_OUTLINE, type: 'circle', source: SRC, ...(filter && { filter }),
+      paint: {
+        'circle-radius': ['case', ['==', ['get', 'n'], 1], 6, 3.5],
+        'circle-color': 'rgba(0,0,0,0)',
+        'circle-stroke-color': '#0a0d12',
+        'circle-stroke-width': ['case', SEL, 4, 2.5],
+        'circle-stroke-opacity': 0.75,
+        'circle-pitch-alignment': 'viewport',
+      },
+    }, 'points');
     ctx.addLayer({
       id: L_DOTS, type: 'circle', source: SRC, ...(filter && { filter }),
       paint: {
@@ -324,7 +339,7 @@ export default function create(ctx) {
     source: 'CelesTrak',
     color: COLOR,
     visible: true,
-    layerIds: [L_FOOT_FILL, L_FOOT_LINE, L_TRACK_PAST, L_TRACK_NEXT, L_DOTS, L_LABEL],
+    layerIds: [L_FOOT_FILL, L_FOOT_LINE, L_TRACK_PAST, L_TRACK_NEXT, L_OUTLINE, L_DOTS, L_LABEL],
     interactive: [{ layer: L_DOTS, priority: 40 }],
     mount,
     update,

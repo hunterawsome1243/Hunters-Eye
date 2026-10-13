@@ -42,7 +42,14 @@ const ICON_LAYOUT = {
   'icon-pitch-alignment': 'viewport',
   'icon-allow-overlap': true,
   'icon-ignore-placement': true,
+  // The plane image has a margin for its outline; no extra padding keeps the click
+  // box the size it was before the outline.
+  'icon-padding': 0,
 };
+// A thin dark outline (the page --bg) around every plane and cluster: lost on the
+// dark map, it keeps the altitude colours readable over bright imagery (desert,
+// city, snow).
+const OUTLINE = { 'icon-halo-color': 'rgba(10, 13, 18, 0.85)', 'icon-halo-width': 2.4 };
 
 // Estimated position now, from the last report plus speed along the heading.
 // Age is measured on the server's clock, so a skewed browser clock doesn't matter.
@@ -96,6 +103,14 @@ export default function create(ctx) {
     ctx.addSource(SEL_SRC, { type: 'geojson', promoteId: 'icao24', data: selData });
     ctx.addImage(IMG, planeImage(), { sdf: true, pixelRatio: 2 });
     ctx.addLayer({
+      id: 'he-aircraft-cluster-outline', type: 'circle', source: SRC, filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#0a0d12', 'circle-stroke-width': 3, 'circle-stroke-opacity': 0.75,
+        'circle-radius': ['step', ['get', 'point_count'], 8, 50, 11, 200, 15, 1000, 20],
+        'circle-pitch-alignment': 'viewport',
+      },
+    }, 'planes');
+    ctx.addLayer({
       id: 'he-aircraft-cluster', type: 'circle', source: SRC, filter: ['has', 'point_count'],
       paint: {
         // A ring with a faint wash, not a disc: a filled bubble at partial alpha lands on
@@ -106,9 +121,8 @@ export default function create(ctx) {
         'circle-pitch-alignment': 'viewport',
       },
     }, 'planes');
-    // Emergency squawks get a red ring under the plane. (An icon halo cannot work:
-    // the plane image is a plain bitmap, not a distance field, so a halo is a few
-    // stray edge pixels.)
+    // Emergency squawks get a red ring under the plane (the plane's own halo is its
+    // dark outline).
     ctx.addLayer({
       id: 'he-aircraft-emergency', type: 'circle', source: SRC, filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'em'], 1]],
       paint: {
@@ -122,6 +136,7 @@ export default function create(ctx) {
       paint: {
         'icon-color': ['case', SEL, '#fde047', ALT],
         'icon-opacity': 0.95,
+        ...OUTLINE,
       },
     }, 'planes');
     hasCountLayer = ctx.hasGlyphs();
@@ -139,11 +154,11 @@ export default function create(ctx) {
     ctx.addLayer({
       id: 'he-aircraft-sel-icon', type: 'symbol', source: SEL_SRC,
       layout: { ...ICON_LAYOUT, 'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 1.125, 7, 1.5, 10, 1.875] },
-      paint: { 'icon-color': '#fde047' },
+      paint: { 'icon-color': '#fde047', ...OUTLINE },
     }, 'top');
     api.layerIds = hasCountLayer
-      ? ['he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-count', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon']
-      : ['he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'];
+      ? ['he-aircraft-cluster-outline', 'he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-count', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon']
+      : ['he-aircraft-cluster-outline', 'he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'];
     // The sources may have survived from before (ctx.addSource is a no-op then): re-push.
     map.getSource(SRC)?.setData(last);
     map.getSource(SEL_SRC)?.setData(selData);
@@ -344,7 +359,7 @@ export default function create(ctx) {
     source: 'OpenSky Network',
     color: COLOR,
     visible: true,
-    layerIds: ['he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'],
+    layerIds: ['he-aircraft-cluster-outline', 'he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'],
     interactive: [
       { layer: 'he-aircraft', priority: 30 },
       { layer: 'he-aircraft-cluster', priority: 30 },
