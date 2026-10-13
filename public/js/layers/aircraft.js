@@ -98,10 +98,22 @@ export default function create(ctx) {
     ctx.addLayer({
       id: 'he-aircraft-cluster', type: 'circle', source: SRC, filter: ['has', 'point_count'],
       paint: {
-        'circle-color': COLOR, 'circle-opacity': 0.45, 'circle-blur': 0.3,
-        'circle-stroke-color': COLOR, 'circle-stroke-width': 1, 'circle-stroke-opacity': 0.6,
+        // A ring with a faint wash, not a disc: a filled bubble at partial alpha lands on
+        // the "below 3 km" teal and reads as an altitude band. The legend has a row for it.
+        'circle-color': COLOR, 'circle-opacity': 0.16,
+        'circle-stroke-color': COLOR, 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.9,
         'circle-radius': ['step', ['get', 'point_count'], 8, 50, 11, 200, 15, 1000, 20],
         'circle-pitch-alignment': 'viewport',
+      },
+    }, 'planes');
+    // Emergency squawks get a red ring under the plane. (An icon halo cannot work:
+    // the plane image is a plain bitmap, not a distance field, so a halo is a few
+    // stray edge pixels.)
+    ctx.addLayer({
+      id: 'he-aircraft-emergency', type: 'circle', source: SRC, filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'em'], 1]],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 7, 10, 10, 12],
+        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#f87171', 'circle-stroke-width': 1.5, 'circle-pitch-alignment': 'viewport',
       },
     }, 'planes');
     ctx.addLayer({
@@ -109,8 +121,6 @@ export default function create(ctx) {
       layout: { ...ICON_LAYOUT, 'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.75, 7, 1, 10, 1.25] },
       paint: {
         'icon-color': ['case', SEL, '#fde047', ALT],
-        'icon-halo-color': '#f87171',
-        'icon-halo-width': ['*', 1.5, ['get', 'em']],
         'icon-opacity': 0.95,
       },
     }, 'planes');
@@ -132,8 +142,8 @@ export default function create(ctx) {
       paint: { 'icon-color': '#fde047' },
     }, 'top');
     api.layerIds = hasCountLayer
-      ? ['he-aircraft-cluster', 'he-aircraft', 'he-aircraft-count', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon']
-      : ['he-aircraft-cluster', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'];
+      ? ['he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-count', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon']
+      : ['he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'];
     // The sources may have survived from before (ctx.addSource is a no-op then): re-push.
     map.getSource(SRC)?.setData(last);
     map.getSource(SEL_SRC)?.setData(selData);
@@ -291,7 +301,8 @@ export default function create(ctx) {
   const hint = el('div', { class: 'hint' }, 'Covers the whole world.');
   const checkbox = el('input', { type: 'checkbox' });
   const filter = el('div', { class: 'filter' }, el('label', {}, 'Only aircraft in current view', checkbox), hint,
-    legend(ALTITUDE_BANDS.map(([, c, label]) => [c, label]), { label: 'Aircraft altitude colors' }));
+    legend([...ALTITUDE_BANDS.map(([, c, label]) => [c, label]), [COLOR, 'groups (zoom in)', 'ring']],
+      { label: 'Aircraft altitude colors' }));
   ctx.addFilter(filter);
 
   // null = more than a hemisphere on screen: the server and the fallback treat it as "no box".
@@ -333,7 +344,7 @@ export default function create(ctx) {
     source: 'OpenSky Network',
     color: COLOR,
     visible: true,
-    layerIds: ['he-aircraft-cluster', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'],
+    layerIds: ['he-aircraft-cluster', 'he-aircraft-emergency', 'he-aircraft', 'he-aircraft-sel-ring', 'he-aircraft-sel-icon'],
     interactive: [
       { layer: 'he-aircraft', priority: 30 },
       { layer: 'he-aircraft-cluster', priority: 30 },

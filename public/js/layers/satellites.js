@@ -1,3 +1,4 @@
+import { Marker } from 'maplibre-gl';
 import { dateTime, el, latLon, num, timeAgo } from '../ui/format.js';
 import { EMPTY, SEL, fc, footprintRadiusKm, geodesicCircle, recentre, unwrapLine } from '../globe/geo.js';
 
@@ -77,6 +78,8 @@ export default function create(ctx) {
   let lastTrack = EMPTY;
   let lastFoot = EMPTY;
   let timer = null;
+  let labelLayer = false; // the style has glyphs, so names are a symbol layer
+  const domLabels = new Map(); // id -> Marker, the names when it has none
 
   const filterBox = el('input', { type: 'checkbox' });
   ctx.addFilter(el('div', { class: 'filter' },
@@ -131,7 +134,8 @@ export default function create(ctx) {
         'circle-pitch-alignment': 'viewport',
       },
     }, 'points');
-    if (ctx.hasGlyphs()) {
+    labelLayer = ctx.hasGlyphs();
+    if (labelLayer) {
       ctx.addLayer({
         id: L_LABEL, type: 'symbol', source: SRC, filter: ['has', 'label'],
         layout: {
@@ -146,6 +150,30 @@ export default function create(ctx) {
     map.getSource(SRC_FOOT)?.setData(lastFoot);
     applyFilter();
     setSelectedState(selected, true);
+    pushLabels();
+  }
+
+  // The offline style (and the start style until the basemap loads) has no glyphs,
+  // so there is no label layer: name the notables with DOM markers instead, as the
+  // flat map's tooltips did. A marker on the far side of the globe is hidden.
+  function pushLabels() {
+    const on = !!map && api.visible && !labelLayer;
+    for (const [id, marker] of domLabels) {
+      if (on && sats.get(id)?.pos) continue;
+      marker.remove();
+      domLabels.delete(id);
+    }
+    if (!on) return;
+    for (const { sat, pos } of sats.values()) {
+      if (!sat.notable || !pos) continue;
+      const marker = domLabels.get(sat.id);
+      if (marker) {
+        marker.setLngLat([pos.lon, pos.lat]);
+        continue;
+      }
+      const element = el('span', { class: 'sat-label', 'aria-hidden': 'true' }, sat.notable);
+      domLabels.set(sat.id, new Marker({ element, anchor: 'left', offset: [10, 0], opacityWhenCovered: '0' }).setLngLat([pos.lon, pos.lat]).addTo(map));
+    }
   }
 
   // --- drawing ------------------------------------------------------------------
@@ -154,6 +182,7 @@ export default function create(ctx) {
     for (const s of sats.values()) if (s.pos) features.push(satFeature(s.sat, s.pos));
     lastSats = fc(features);
     map?.getSource(SRC)?.setData(lastSats);
+    pushLabels();
   }
 
   function pushFootprint() {
@@ -326,7 +355,10 @@ export default function create(ctx) {
         drawTrack();
       }
     },
-    onHide: stopTimer,
+    onHide() {
+      stopTimer();
+      pushLabels();
+    },
   };
   startTimer();
   return api;

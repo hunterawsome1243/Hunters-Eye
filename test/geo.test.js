@@ -96,3 +96,12 @@ test('boundsOf covers the unwrapped polygons', () => {
   assert.deepEqual([b[0][1], b[1][1]], [10, 20]);
   assert.equal(boundsOf([]), null);
 });
+
+test('boundsOf keeps a zone split at 180 in one piece', () => {
+  // Western Aleutians: islands east and west of 180, as separate parts.
+  const isle = (lon, lat) => [[[lon, lat], [lon + 0.5, lat], [lon + 0.5, lat + 0.3], [lon, lat + 0.3], [lon, lat]]];
+  const b = boundsOf([isle(172.5, 52.7), isle(178.8, 51.4), isle(-176.9, 51.6)]);
+  assert.ok(Math.abs(b[1][0] - b[0][0] - 11.1) < 1e-9, `width ${b[1][0] - b[0][0]}`);
+  const mid = (b[0][0] + b[1][0]) / 2;
+  assert.ok(Math.abs((((mid + 180) % 360) + 360) % 360 - 180 - 178.05) < 1e-9, `middle ${mid}`);
+});

@@ -115,10 +115,19 @@ export function geodesicCircle(lon, lat, radiusKm, n = 72) {
 }
 
 // [[minLon, minLat], [maxLon, maxLat]] of MultiPolygon coordinates after unwrapping.
+// Each part is moved to the world copy nearest the first part: NWS serves a zone that
+// straddles 180° (the western Aleutians) as parts on both sides, whose plain bounds
+// span the whole world with their middle at longitude 0.
 export function boundsOf(multi) {
   let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+  let ref = null;
   for (const polygon of unwrapPolygons(multi)) {
-    for (const [lon, lat] of polygon[0] ?? []) {
+    const ring = polygon[0] ?? [];
+    if (!ring.length) continue;
+    ref ??= ring[0][0];
+    const shift = nearLon(ring[0][0], ref) - ring[0][0];
+    for (const [lon0, lat] of ring) {
+      const lon = lon0 + shift;
       if (lon < minLon) minLon = lon;
       if (lon > maxLon) maxLon = lon;
       if (lat < minLat) minLat = lat;

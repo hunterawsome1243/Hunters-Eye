@@ -13,6 +13,7 @@ const slotId = (tier) => `he-slot-${tier}`;
 
 const IMAGERY_FAILURES = 8; // he-imagery tile errors within a minute before switching to NASA
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 // The 3D globe: a MapLibre map in globe projection, with the basemap pipeline,
 // click dispatch, camera helpers and the ambient spin. Layer modules never
@@ -46,6 +47,21 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
   map.addControl(new SpinControl(spin), 'bottom-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   // No GlobeControl: it would replace the zoom-driven projection with a plain toggle.
+  // Phones: MapLibre unfolds a compact attribution when its text first arrives, and on a
+  // phone it wraps over the scale and the globe until the first drag; start it folded
+  // behind its (i) button instead.
+  if (phone) {
+    const fold = () => {
+      const attrib = container.querySelector('.maplibregl-ctrl-attrib.maplibregl-compact-show');
+      if (!attrib) return;
+      attrib.classList.remove('maplibregl-compact-show');
+      attrib.removeAttribute('open');
+      map.off('styledata', fold);
+      map.off('sourcedata', fold);
+    };
+    map.on('styledata', fold);
+    map.on('sourcedata', fold);
+  }
 
   // --- style lifecycle --------------------------------------------------------
   let styleReady = false;
@@ -126,6 +142,7 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
       id: `system:imagery:${Date.now()}`,
       source: 'system',
       system: true,
+      kind: 'warn',
       time: Date.now(),
       color: 'var(--warn)',
       title: 'Imagery switched to NASA Blue Marble',
@@ -184,7 +201,11 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     const z = zoom ?? clamp(map.getZoom(), minZoom, maxZoom);
     spin.pause();
     const lift = phone && detail?.key ? -0.2 * map.getContainer().clientHeight : 0;
-    map.flyTo({ center, zoom: z, duration: 1000, curve: 1.3, speed: 0.9, offset: [0, lift] });
+    const to = { center, zoom: z, offset: [0, lift] };
+    // Under reduced motion MapLibre's flyTo becomes a jumpTo that drops the offset,
+    // leaving the point under the phone's sheet; its easeTo keeps it (and jumps too).
+    if (reduceMotion.matches) map.easeTo(to);
+    else map.flyTo({ ...to, duration: 1000, curve: 1.3, speed: 0.9 });
   }
 
   function fitBounds(bounds, { maxZoom = 8, padding = 40 } = {}) {
@@ -308,9 +329,16 @@ class SpinControl {
     btn.title = 'Auto-rotate';
     btn.setAttribute('aria-label', 'Auto-rotate the globe');
     btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 12a8 3 0 0 0 16 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2"/><path d="M19 4l1.5 3.5L17 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    const show = (on) => btn.setAttribute('aria-pressed', String(on));
-    show(this.spin.on);
+    // The spin never runs under reduced motion, so the control is off and
+    // disabled there instead of claiming to be on.
+    const show = () => {
+      btn.disabled = reduceMotion.matches;
+      btn.title = reduceMotion.matches ? 'Auto-rotate is off while reduced motion is on' : 'Auto-rotate';
+      btn.setAttribute('aria-pressed', String(this.spin.on && !reduceMotion.matches));
+    };
+    show();
     this.spin.onChange(show);
+    reduceMotion.addEventListener('change', show);
     btn.addEventListener('click', () => this.spin.set(!this.spin.on));
     this.el.append(btn);
     return this.el;

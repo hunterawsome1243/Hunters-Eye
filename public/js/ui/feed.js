@@ -5,9 +5,12 @@ const PER_SOURCE_LIMIT = 300;
 const DISPLAY_LIMIT = 200;
 const SETTLE_MS = 2000; // entries added this long after the first load count as "new"
 
-// Small icons for system rows (feed failed / recovered) in place of a colour dot.
+// Small icons for system rows (feed failed / recovered, imagery switched) in place of a
+// colour dot. The icon takes the row's colour, so error and warn share the "!".
+const ALERT_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.25" fill="currentColor"/><path d="M6 3.2v3.3M6 8.4v.4" stroke="#0a0d12" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const ICONS = {
-  error: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.25" fill="currentColor"/><path d="M6 3.2v3.3M6 8.4v.4" stroke="#0a0d12" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  error: ALERT_ICON,
+  warn: ALERT_ICON,
   ok: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.25" fill="currentColor"/><path d="M3.6 6.2l1.7 1.6 3.1-3.4" fill="none" stroke="#0a0d12" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 

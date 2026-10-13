@@ -48,6 +48,7 @@ try {
   console.warn('Globe unavailable:', err.message);
   const msg = document.createElement('div');
   msg.className = 'map-unsupported';
+  mapEl.classList.add('unsupported'); // the connecting pill would sit on the sentence
   msg.textContent = "This browser can't draw the globe; the feed and status still update.";
   mapEl.append(msg);
 }
@@ -100,7 +101,7 @@ function setSidebar(open) {
   setModal();
   followPanel();
 }
-setSidebar(window.innerWidth > 760);
+setSidebar(window.innerWidth > 760 || !globe); // without a globe the feed is the page
 // Crossing the phone breakpoint with the panel open slides the globe's edge too (from
 // beside the panel to under it, or back) and changes whether the panel is modal.
 PHONE.addEventListener('change', () => {
