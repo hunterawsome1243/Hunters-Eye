@@ -33,7 +33,11 @@ export function createSpin(map, { phone = false, isBlocked = () => false } = {})
   function canStep() {
     if (!enabled || interacting || document.hidden || reduce.matches || navigator.connection?.saveData) return false;
     if (isBlocked() || map.isMoving()) return false;
-    if (phone && spent >= PHONE_BUDGET) return false;
+    if (phone && spent >= PHONE_BUDGET) {
+      enabled = false; // budget spent: the control shows off, and one press starts it again
+      changed();
+      return false;
+    }
     return map.getZoom() < STOP_Z;
   }
 

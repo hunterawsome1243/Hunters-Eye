@@ -12,7 +12,9 @@
 export const PROJECTION = { type: ['interpolate', ['linear'], ['zoom'], 9, 'vertical-perspective', 11, 'mercator'] };
 
 // sky-color matches the page background (--bg) so space is seamless with the
-// chrome; the atmosphere glow fades out between z4 and z7.
+// chrome; the atmosphere glow fades out between z4 and z7. MapLibre draws the
+// atmosphere after every layer, so it tints the markers under it too: kept
+// faint, so a quake or plane near the limb keeps its legend colour.
 export const SKY = {
   'sky-color': '#0a0d12',
   'horizon-color': '#3b76b8',
@@ -20,7 +22,7 @@ export const SKY = {
   'fog-color': '#0a0d12',
   'fog-ground-blend': 0.5,
   'horizon-fog-blend': 0.8,
-  'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.7, 4, 0.7, 7, 0],
+  'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.3, 4, 0.3, 7, 0],
 };
 
 // A low light from the top left of the screen: the atmosphere shows as a soft
