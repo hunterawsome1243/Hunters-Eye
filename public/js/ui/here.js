@@ -6,6 +6,8 @@ import { el } from './format.js';
 // there, and flies to it. The detail card then says how far the clicked thing is.
 // The place is remembered in localStorage so the marker is back on the next visit
 // without another lookup; pressing the button again removes it and forgets.
+// The proximity feed (ui/feed.js) measures from the same place and asks for one at
+// start through locate({ fly: false }), so the globe's arrival is not interrupted.
 // The button only exists when /api/config says the server can look addresses up.
 const KEY = 'he.here';
 const REMEMBER_MS = 24 * 3_600_000;
@@ -25,6 +27,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   let marker = null;
   let busy = false;
   let button = null;
+  let error = ''; // the last lookup's failure, for the proximity feed's empty state
 
   function remember(p) {
     try {
@@ -54,8 +57,9 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     onChange(p);
   }
 
-  async function locate() {
-    if (busy) return;
+  // Resolves to the place, or null when the lookup failed (error() says why).
+  async function locate({ fly = true } = {}) {
+    if (busy) return null;
     busy = true;
     button?.setAttribute('aria-busy', 'true');
     try {
@@ -63,15 +67,19 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       const p = { lat: data.lat, lon: data.lon, place: data.place || '', at: Date.now() };
+      error = '';
       remember(p);
       place(p);
-      flyTo?.({ center: [p.lon, p.lat], minZoom: 3, maxZoom: 5 });
+      if (fly) flyTo?.({ center: [p.lon, p.lat], minZoom: 3, maxZoom: 5 });
+      return p;
     } catch (err) {
+      error = err.message;
       console.warn('Where am I:', err.message);
       if (button) {
         button.title = `Could not place you: ${err.message}`;
         setTimeout(() => { button.title = TITLE; }, 6000);
       }
+      return null;
     } finally {
       busy = false;
       button?.removeAttribute('aria-busy');
@@ -110,6 +118,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     toggle,
     locate,
     position: () => position,
+    error: () => error,
     // Once /api/config is in: show the button, and put back a remembered marker.
     configure(enabled) {
       if (control.el) control.el.hidden = !enabled;

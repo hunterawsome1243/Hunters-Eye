@@ -146,6 +146,9 @@ try {
   }, fake);
   check('globe drawn by MapLibre', globeState.ready && globeState.canvas && globeState.imagery && globeState.projection && globeState.slots && (!fake || globeState.land), JSON.stringify(globeState));
 
+  // The feed opens on the Proximity tab; the Live tab is the newest-first list these checks expect.
+  await page.locator('#feed-tab-live').click();
+  await page.waitForTimeout(100);
   const feedItems = await page.locator('#feed button').count();
   check('live feed has entries', feedItems > 0, `${feedItems} entries`);
 
@@ -262,21 +265,34 @@ try {
     }
   }
 
-  // "You are here": the button asks the server, drops the marker, and the detail card
-  // then measures from it (the fake places every visitor in Denver).
+  // "You are here": the proximity feed (the default tab) asked the server at start and
+  // dropped the marker; the detail card measures from it (the fake places every visitor
+  // in Denver), and the proximity feed lists the nearest things first with distances.
   if (fake) {
     await page.keyboard.press('Escape');
-    await page.locator('.he-ctrl-here').click();
     await page.waitForSelector('.you', { timeout: 10_000 });
     await idle();
     const label = await page.locator('.you-label').textContent();
     await evalMap(() => window.__huntersEye.selectFirst('earthquakes'));
     await page.waitForTimeout(300);
     const fromYou = await page.evaluate(() => [...document.querySelectorAll('#detail dt')].find((dt) => dt.textContent === 'From you')?.nextElementSibling?.textContent ?? '');
-    check('You are here: marker placed and the card measures from it', label === 'You · Denver' && /km/.test(fromYou), `${label}; ${fromYou}`);
+    check('You are here: marker placed at start and the card measures from it', label === 'You · Denver' && /km/.test(fromYou), `${label}; ${fromYou}`);
     await page.keyboard.press('Escape');
+    await page.locator('#feed-tab-near').click();
+    await page.waitForSelector('#feed .dist', { timeout: 5_000 });
+    const dists = await page.$$eval('#feed .dist', (els) => els.map((e) => parseFloat(e.textContent.replace(/,/g, ''))));
+    const ascending = dists.every((d, i) => Number.isFinite(d) && (i === 0 || d >= dists[i - 1]));
+    check('Proximity feed: nearest first, a distance on every row', dists.length > 1 && ascending, `${dists.length} rows, first ${dists[0]} km, last ${dists[dists.length - 1]} km`);
+    const reach = await page.locator('#feed-count').textContent();
+    check('Proximity feed: the heading says how far it reaches', /≤ [\d,]+ km/.test(reach), reach);
     await page.locator('.he-ctrl-here').click(); // forget again
     check('You are here: pressing again removes the marker', (await page.locator('.you').count()) === 0);
+    await page.waitForTimeout(100);
+    check('Proximity feed: without a place it offers Find me', (await page.locator('#feed .feed-locate-btn').count()) === 1);
+    await page.locator('#feed .feed-locate-btn').click();
+    await page.waitForSelector('.you', { timeout: 10_000 });
+    check('Proximity feed: Find me places the marker again', (await page.locator('.you').count()) === 1);
+    await page.locator('#feed-tab-live').click();
   }
 
   if (!fake) {

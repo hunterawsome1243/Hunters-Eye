@@ -28,6 +28,7 @@ Other features:
 - If the server can't reach OpenSky or CelesTrak at all, your browser fetches that feed itself and the chip says **via browser**. See [Browser fallback](#browser-fallback).
 - Optional **Brief me** button: Claude writes an 80-140 word situation brief of what is on the globe. It appears only when the server has an `ANTHROPIC_API_KEY`; see [Situation brief](#situation-brief-optional).
 - Optional **Describe** button on the detail card: click any object on the globe and Claude explains what it is and why it matters, in 60-110 words, and answers follow-up questions about it. Same key, same limits; see [Describe an object](#describe-an-object-optional).
+- **Proximity feed**: the feed opens on the things nearest to you, with a distance and direction on every row; the **Live feed** tab is the same list newest first. See [You are here](#you-are-here).
 - **You are here**: a crosshair button by the zoom controls places you on the globe from your network address (city accuracy), and every detail card then says how far away the thing is and in which direction. See [You are here](#you-are-here).
 - **Watchlist**: rules in the sidebar (a callsign, a place, "Tornado", "M6", or anything within a distance of you) that star matching feed rows as they land and, if you allow it, show a browser notification. Rules stay in your browser.
 
@@ -100,7 +101,9 @@ With the same `ANTHROPIC_API_KEY`, the detail card that opens when you click a q
 
 ### You are here
 
-The crosshair button next to the zoom controls asks the server where you are (`GET /api/whereami`, `server/whereami.js`). The server looks your address up at [ipwho.is](https://ipwho.is), a keyless service that answers over HTTPS with city accuracy (tens of km at best, sometimes the wrong city, and a VPN places you at its exit), and caches the answer for an hour per address. The globe gets an accent marker with your city, flies there, and remembers the place in your browser for a day; pressing the button again removes the marker and forgets it. While the marker is set, every detail card ends with a **From you** row: the distance and compass direction from you to the thing you clicked, so an alert's relative position is one glance away.
+The feed has two tabs. **Proximity feed** (the default) lists the forty things nearest to you, closest first, with the distance and compass direction on each row and the reach of the list in the heading; **Live feed** is the same entries newest first. The tab you pick is remembered in your browser. The proximity feed needs a place to measure from, so on first load it asks the server where you are (below) without moving the globe; if that fails, it shows a **Find me** button and the Live feed takes over until you choose otherwise.
+
+The crosshair button next to the zoom controls asks the server the same question (`GET /api/whereami`, `server/whereami.js`). The server looks your address up at [ipwho.is](https://ipwho.is), a keyless service that answers over HTTPS with city accuracy (tens of km at best, sometimes the wrong city, and a VPN places you at its exit), and caches the answer for an hour per address. The globe gets an accent marker with your city, flies there, and remembers the place in your browser for a day; pressing the button again removes the marker and forgets it. While the marker is set, every detail card ends with a **From you** row: the distance and compass direction from you to the thing you clicked, so an alert's relative position is one glance away.
 
 - Nothing is looked up until you press the button, and no address is kept beyond the one-hour cache.
 - `WHEREAMI_URL` swaps the service (`{ip}` is replaced by the address; empty turns the button off). Any JSON with `latitude`/`longitude` (or `lat`/`lon`) and a `city` works.
@@ -144,7 +147,7 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 | `IMAGERY_TILES` | EOX Sentinel-2 cloudless 2016 | `{z}/{x}/{y}` URL of the imagery drawn on the globe from space. Empty turns imagery off (the vector map covers the globe). |
 | `IMAGERY_ATTRIBUTION`, `IMAGERY_MAXZOOM` | EOX credit, `12` | The credit line for a custom imagery source, and the deepest zoom its tiles are requested at. |
 | `BROWSER_FALLBACK` | on | `off` stops browsers from fetching OpenSky and CelesTrak themselves when the server can't reach them. See [Browser fallback](#browser-fallback). |
-| `WHEREAMI_URL` | `https://ipwho.is/{ip}` | The address lookup behind the **You are here** button. Empty turns the button off. See [You are here](#you-are-here). |
+| `WHEREAMI_URL` | `https://ipwho.is/{ip}` | The address lookup behind the **You are here** button and the **Proximity feed**. Empty turns both off. See [You are here](#you-are-here). |
 | `TRUST_PROXY` | `1` on Render, else empty | Read the visitor's address from `X-Forwarded-For` behind a proxy. |
 | `ANTHROPIC_API_KEY` | empty | Turns on the **Brief me** and **Describe** buttons. See [Situation brief](#situation-brief-optional). `BRIEF_MODEL` picks the model (default `claude-haiku-5-5`). |
 
