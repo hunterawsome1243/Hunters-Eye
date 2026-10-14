@@ -1,4 +1,5 @@
 import { el, num, timeAgo } from './format.js';
+import { bearingDeg, compassPoint, distanceKm } from '../globe/geo.js';
 
 const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 
@@ -6,7 +7,7 @@ const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 // A layer calls show() with a key; calling show() again with the same key refreshes
 // it in place (used for moving things like aircraft and satellites). onShow fires
 // only when the key changes, onClose when the panel goes away.
-export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } = {}) {
+export function createDetailPanel(root, { onClose, onShow, here = () => null, fetchImpl = fetch } = {}) {
   const head = root.querySelector('.detail-head');
   const closeBtn = root.querySelector('.detail-close');
   const swatch = root.querySelector('.detail-swatch');
@@ -209,7 +210,12 @@ export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } =
       swatch.style.background = color;
       kicker.textContent = kind;
       title.textContent = heading;
-      rows.replaceChildren(...fields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
+      // With a "you are here" marker set, the last row says how far away this is.
+      const you = latlng ? here() : null;
+      const shownFields = you
+        ? [...fields, ['From you', `${num(distanceKm([you.lat, you.lon], latlng))} km`, `to the ${compassPoint(bearingDeg([you.lat, you.lon], latlng))} of ${you.place ? you.place.split(',')[0] : 'you'}`]]
+        : fields;
+      rows.replaceChildren(...shownFields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
       extra.replaceChildren();
       if (notes) extra.append(notes);
       if (link && /^https?:\/\//.test(link.href)) extra.append(notes ? '\n\n' : '', el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));

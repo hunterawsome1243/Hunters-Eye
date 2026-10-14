@@ -161,3 +161,22 @@ export function inBox(box, lat, lon) {
   const l = nearLon(lon, (box.lomin + box.lomax) / 2);
   return l >= box.lomin && l <= box.lomax;
 }
+
+// Great-circle distance in km between two [lat, lon] points (haversine).
+export function distanceKm([lat1, lon1], [lat2, lon2]) {
+  const a = Math.sin(rad(lat2 - lat1) / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(a));
+}
+
+// Initial bearing from one [lat, lon] to another, 0-360 clockwise from north.
+export function bearingDeg([lat1, lon1], [lat2, lon2]) {
+  const dLon = rad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(rad(lat2));
+  const x = Math.cos(rad(lat1)) * Math.sin(rad(lat2)) - Math.sin(rad(lat1)) * Math.cos(rad(lat2)) * Math.cos(dLon);
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+
+const POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+export function compassPoint(bearing) {
+  return POINTS[Math.round((((bearing % 360) + 360) % 360) / 45) % 8];
+}

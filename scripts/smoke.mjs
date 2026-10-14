@@ -39,6 +39,7 @@ if (fake) {
     CELESTRAK_URL: `${base}/celestrak`,
     NWS_URL: `${base}/nws`,
     NWS_ZONE_BASE: base,
+    WHEREAMI_URL: `${base}/whereami/{ip}`,
     CACHE_DIR: '',
     AIRCRAFT_INTERVAL_SEC: '3',
   });
@@ -259,6 +260,23 @@ try {
       const bbox = await page.evaluate(() => window.__huntersEye.layers.find((l) => l.id === 'aircraft').fetchOptions().bbox);
       check('Aircraft: view filter reaches the browser fallback', !!bbox, JSON.stringify(bbox));
     }
+  }
+
+  // "You are here": the button asks the server, drops the marker, and the detail card
+  // then measures from it (the fake places every visitor in Denver).
+  if (fake) {
+    await page.keyboard.press('Escape');
+    await page.locator('.he-ctrl-here').click();
+    await page.waitForSelector('.you', { timeout: 10_000 });
+    await idle();
+    const label = await page.locator('.you-label').textContent();
+    await evalMap(() => window.__huntersEye.selectFirst('earthquakes'));
+    await page.waitForTimeout(300);
+    const fromYou = await page.evaluate(() => [...document.querySelectorAll('#detail dt')].find((dt) => dt.textContent === 'From you')?.nextElementSibling?.textContent ?? '');
+    check('You are here: marker placed and the card measures from it', label === 'You · Denver' && /km/.test(fromYou), `${label}; ${fromYou}`);
+    await page.keyboard.press('Escape');
+    await page.locator('.he-ctrl-here').click(); // forget again
+    check('You are here: pressing again removes the marker', (await page.locator('.you').count()) === 0);
   }
 
   if (!fake) {

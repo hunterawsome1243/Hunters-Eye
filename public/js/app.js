@@ -3,6 +3,7 @@ import { createFallbacks } from './fallback.js';
 import { createGlobe } from './globe.js';
 import { createBrief } from './ui/brief.js';
 import { createDetailPanel } from './ui/detail.js';
+import { createHere } from './ui/here.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
@@ -26,7 +27,9 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
   // an emergency squawk) ripples where it landed as its row arrives.
   onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
 });
+let here = null; // created once the globe exists, below
 const detail = createDetailPanel(document.getElementById('detail'), {
+  here: () => here?.position() ?? null,
   onShow: ({ latlng, color, radius }) => {
     feed.refresh({ reveal: true });
     if (latlng) ripple(latlng, color, radius);
@@ -60,6 +63,10 @@ if (map) {
   mapEl.classList.add('arriving');
   map.once('idle', () => requestAnimationFrame(() => mapEl.classList.remove('arriving')));
 }
+
+// "You are here": a marker from the visitor's address, on request (ui/here.js).
+here = createHere({ map, flyTo: (to) => globe?.flyTo(to), onChange: () => feed.refresh() });
+if (map) map.addControl(here.control, 'bottom-right');
 
 // A short pulse on the globe where the selected point sits, so a feed click shows
 // where it landed (alert areas highlight their outline instead).
@@ -361,13 +368,15 @@ window.__huntersEye = {
   selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false,
   spin: (on) => globe?.spin.set(on),
   brief,
+  here: () => here,
 };
 
 getJson('/api/config')
-  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig }) => {
+  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig, whereami }) => {
     if (basemap) globe?.loadBasemap(basemap, imagery);
     brief.configure(briefConfig);
     detail.configure(describeConfig);
+    here.configure(!!whereami);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => (lastSources.length || serverDown) && showStatus(),

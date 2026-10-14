@@ -408,6 +408,19 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .maplibregl-ctrl-group button:not(:disabled):is(:hover, :active) .maplibregl-ctrl-icon { filter: invert(1) brightness(1.14); }
 .maplibregl-ctrl-group button.he-ctrl-spin { display: grid; place-items: center; }
 .maplibregl-ctrl-group button.he-ctrl-spin[aria-pressed="true"] { color: var(--accent); }
+.maplibregl-ctrl-group button.he-ctrl-here[aria-pressed="true"] { color: var(--accent); }
+.maplibregl-ctrl-group button.he-ctrl-here[aria-busy="true"] { animation: pulse 1.2s infinite; }
+.he-ctrl-here-group[hidden] { display: none; }
+/* "You are here" (ui/here.js): an accent dot with a soft ring, the city as a small label.
+   The box is the dot; the ring and label hang off it so the marker's anchor is the point. */
+.you { position: relative; width: 12px; height: 12px; pointer-events: auto; }
+.you-dot { position: absolute; inset: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.you-ring { position: absolute; inset: -8px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: 0.6;
+  animation: you-breathe 3s ease-in-out infinite; }
+@keyframes you-breathe { 50% { transform: scale(1.35); opacity: 0.2; } }
+.you-label { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: var(--text-xs); font-weight: 600;
+  color: var(--text); background: var(--glass); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 1px var(--space-2); }
+@media (prefers-reduced-motion: reduce) { .you-ring { animation: none; } }
 .maplibregl-ctrl-group button.he-ctrl-spin[aria-pressed="true"]:hover { color: var(--accent-strong); }
 .maplibregl-ctrl-attrib { background: var(--glass); color: var(--muted); font-size: var(--text-xs);
   padding: 2px var(--space-2); border-top-left-radius: var(--radius-sm); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
