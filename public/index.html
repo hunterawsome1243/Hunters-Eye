@@ -28,9 +28,16 @@
     <aside id="sidebar" class="sidebar no-anim">
       <section id="brief" class="panel-section brief" hidden></section>
       <section class="panel-section feed-section">
-        <h2>Live feed <span id="feed-count" class="muted"></span></h2>
-        <ol id="feed" class="feed" aria-live="polite"></ol>
+        <h2 class="feed-tabs">
+          <span role="tablist" aria-label="Feed">
+            <button type="button" role="tab" id="feed-tab-near" class="feed-tab" aria-selected="true" aria-controls="feed">Proximity feed</button>
+            <button type="button" role="tab" id="feed-tab-live" class="feed-tab" aria-selected="false" aria-controls="feed">Live feed</button>
+          </span>
+          <span id="feed-count" class="muted"></span>
+        </h2>
+        <ol id="feed" class="feed" aria-live="polite" role="tabpanel"></ol>
       </section>
+      <section id="watch" class="panel-section watch-section"></section>
       <section class="panel-section filters-section no-anim">
         <h2>
           <button id="filters-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="filters-panel">

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boundsOf, footprintRadiusKm, geodesicCircle, inBox, padBox, recentre, unwrapLine, unwrapPolygons, unwrapRing } from '../public/js/globe/geo.js';
+import { bearingDeg, boundsOf, compassPoint, distanceKm, footprintRadiusKm, geodesicCircle, inBox, padBox, recentre, unwrapLine, unwrapPolygons, unwrapRing } from '../public/js/globe/geo.js';
 
 const haversineKm = ([lon1, lat1], [lon2, lat2]) => {
   const r = (d) => (d * Math.PI) / 180;
@@ -104,4 +104,17 @@ test('boundsOf keeps a zone split at 180 in one piece', () => {
   assert.ok(Math.abs(b[1][0] - b[0][0] - 11.1) < 1e-9, `width ${b[1][0] - b[0][0]}`);
   const mid = (b[0][0] + b[1][0]) / 2;
   assert.ok(Math.abs((((mid + 180) % 360) + 360) % 360 - 180 - 178.05) < 1e-9, `middle ${mid}`);
+});
+
+test('distance, bearing and compass point between two places', () => {
+  const london = [51.5074, -0.1278];
+  const newYork = [40.7128, -74.006];
+  assert.ok(Math.abs(distanceKm(london, newYork) - 5570) < 15);
+  assert.equal(distanceKm(london, london), 0);
+  const b = bearingDeg(london, newYork);
+  assert.ok(b > 285 && b < 292, `bearing ${b}`); // great-circle start heading, WNW
+  assert.equal(compassPoint(0), 'N');
+  assert.equal(compassPoint(44), 'NE');
+  assert.equal(compassPoint(359), 'N');
+  assert.equal(compassPoint(b), 'W');
 });

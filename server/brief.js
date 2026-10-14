@@ -66,15 +66,17 @@ export function createThrottle({ minGapMs = 5000, perHour = 20, now = Date.now }
 
 // Default way to ask Claude: the official SDK, Messages API, one short reply.
 // `system` is the prompt for the job (the brief here; server/describe.js has its own).
-export function sdkAsk({ apiKey, model, timeoutMs = 30_000, system = SYSTEM, label = 'Snapshot' }) {
+// `messages(input)` can turn the sanitised input into a short conversation instead.
+export function sdkAsk({ apiKey, model, timeoutMs = 30_000, system = SYSTEM, label = 'Snapshot', messages }) {
   const client = new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 1 });
+  const toMessages = messages ?? ((input) => [{ role: 'user', content: `${label}:\n${JSON.stringify(input)}` }]);
   return async (input) => {
     const response = await client.messages.create({
       model,
       max_tokens: 1024, // room for the reply; thinking is off so none is spent reasoning
       thinking: { type: 'disabled' },
       system,
-      messages: [{ role: 'user', content: `${label}:\n${JSON.stringify(input)}` }],
+      messages: toMessages(input),
     });
     const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
     return { text, usage: response.usage, stopReason: response.stop_reason };
@@ -85,9 +87,9 @@ export function sdkAsk({ apiKey, model, timeoutMs = 30_000, system = SYSTEM, lab
 // per-object description. `sanitize(body)` trims the request to what the prompt
 // needs (and throws on junk); `ask(input)` resolves to { text, usage }; tests pass
 // their own `ask`. The key stays on the server, and each route has a throttle.
-export function createClaudeRoute({ name, system, label, sanitize, apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.BRIEF_MODEL || DEFAULT_MODEL, ask, throttle = createThrottle() }) {
+export function createClaudeRoute({ name, system, label, messages, sanitize, apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.BRIEF_MODEL || DEFAULT_MODEL, ask, throttle = createThrottle() }) {
   const enabled = !!apiKey;
-  const run = ask ?? (enabled ? sdkAsk({ apiKey, model, system, label }) : null);
+  const run = ask ?? (enabled ? sdkAsk({ apiKey, model, system, label, messages }) : null);
   async function handler(req, res) {
     if (!enabled) return res.status(404).json({ error: `${name} is off: no ANTHROPIC_API_KEY is set on the server.` });
     const gate = throttle.take();

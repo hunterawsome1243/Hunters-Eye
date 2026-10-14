@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { SourcePoller } from './lib/poller.js';
 import { createBriefRoute } from './brief.js';
 import { createDescribeRoute } from './describe.js';
+import { createWhereamiRoute } from './whereami.js';
 
 const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 
@@ -32,10 +33,15 @@ export function createApp(sources, pollerOptions, {
   imagery = imageryConfig(),
   brief = createBriefRoute(),
   describe = createDescribeRoute(),
+  whereami = createWhereamiRoute(),
+  trustProxy = process.env.TRUST_PROXY ?? (process.env.RENDER ? '1' : ''),
 } = {}) {
   const pollers = new Map(sources.map((s) => [s.id, new SourcePoller(s, pollerOptions)]));
   const app = express();
   app.disable('x-powered-by');
+  // Behind a host's proxy (Render sets RENDER=true) the visitor's address is in
+  // X-Forwarded-For; TRUST_PROXY=1 (or a hop count) turns that on elsewhere.
+  if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
   app.use(express.static(root('public')));
   app.use('/vendor/satellite.js', express.static(root('node_modules/satellite.js/dist')));
@@ -51,10 +57,11 @@ export function createApp(sources, pollerOptions, {
   // `fallback` lists the sources the browser may fetch itself, and from where,
   // while this server can't reach them (public/js/fallback.js). `brief` says
   // whether the "Brief me" button should exist (server/brief.js), `describe`
-  // whether the detail card's "Describe" button should (server/describe.js).
+  // whether the detail card's "Describe" button should (server/describe.js),
+  // `whereami` whether the "You are here" button should (server/whereami.js).
   app.get('/api/config', (req, res) => {
     const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
-    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null, describe: describe.enabled ? { model: describe.model } : null });
+    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null, describe: describe.enabled ? { model: describe.model } : null, whereami: whereami.enabled });
   });
 
   // A Claude-written situation brief of what the dashboard shows, on demand.
@@ -62,6 +69,8 @@ export function createApp(sources, pollerOptions, {
   app.post('/api/brief', express.json({ limit: brief.bodyLimit }), brief.handler);
   // A Claude-written description of one clicked object; same key and limits.
   app.post('/api/describe', express.json({ limit: describe.bodyLimit }), describe.handler);
+  // Where the visitor is, from their address (server/whereami.js), on request only.
+  app.get('/api/whereami', whereami.handler);
 
   // One cheap call the browser makes every few seconds: health, counts and versions
   // of every source. The browser fetches a source's data only when its version moves.

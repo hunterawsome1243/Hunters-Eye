@@ -114,7 +114,13 @@ function nwsZone(req) {
   return { type: 'Feature', id, geometry: { type: 'Polygon', coordinates: [[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]]] }, properties: { id } };
 }
 
+// ipwho.is stand-in: every visitor is placed in Denver.
+function whereami() {
+  return { success: true, ip: '203.0.113.7', city: 'Denver', region: 'Colorado', country: 'United States', latitude: 39.7392, longitude: -104.9903 };
+}
+
 export const routes = {
+  '/whereami': whereami,
   '/nws': nws,
   '/zones': nwsZone,
   '/celestrak': celestrak,

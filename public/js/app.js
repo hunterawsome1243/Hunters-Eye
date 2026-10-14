@@ -3,6 +3,8 @@ import { createFallbacks } from './fallback.js';
 import { createGlobe } from './globe.js';
 import { createBrief } from './ui/brief.js';
 import { createDetailPanel } from './ui/detail.js';
+import { createHere } from './ui/here.js';
+import { createWatch } from './ui/watch.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
@@ -25,8 +27,47 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
   // Ambient: the newest significant event (a strong quake, an Extreme or Severe alert,
   // an emergency squawk) ripples where it landed as its row arrives.
   onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
+  onNew: (entry) => watch.check(entry),
+  // The proximity feed measures from the "you are here" marker and can ask for one.
+  here: () => here?.position() ?? null,
+  locate: (opts) => here?.locate(opts) ?? null,
+  locateError: () => here?.error() ?? '',
 });
+let here = null; // created once the globe exists, below
+
+// Feed tabs: Proximity (nearest to you first, the default) and Live (newest first).
+// The choice is remembered; without one, a failed lookup falls back to Live quietly.
+const FEED_TAB_KEY = 'he.feed.tab';
+const feedTabs = { near: document.getElementById('feed-tab-near'), live: document.getElementById('feed-tab-live') };
+let chosenTab = null;
+try { chosenTab = ['near', 'live'].includes(localStorage.getItem(FEED_TAB_KEY)) ? localStorage.getItem(FEED_TAB_KEY) : null; } catch { /* none */ }
+function showFeedTab(name, { remember = false } = {}) {
+  feed.setMode(name);
+  for (const [key, tab] of Object.entries(feedTabs)) {
+    tab.setAttribute('aria-selected', String(key === name));
+    tab.tabIndex = key === name ? 0 : -1;
+  }
+  if (remember) {
+    chosenTab = name;
+    try { localStorage.setItem(FEED_TAB_KEY, name); } catch { /* private mode or full */ }
+  }
+}
+for (const [key, tab] of Object.entries(feedTabs)) {
+  tab.addEventListener('click', () => showFeedTab(key, { remember: true }));
+  tab.addEventListener('keydown', (e) => { // arrow keys move between the two tabs
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const other = key === 'near' ? 'live' : 'near';
+    if (feedTabs[other].hidden) return;
+    e.preventDefault();
+    feedTabs[other].focus();
+    showFeedTab(other, { remember: true });
+  });
+}
+showFeedTab(chosenTab ?? 'near');
+// Watchlist rules (ui/watch.js): a hit marks the row and notifies.
+const watch = createWatch(document.getElementById('watch'), { here: () => here?.position() ?? null });
 const detail = createDetailPanel(document.getElementById('detail'), {
+  here: () => here?.position() ?? null,
   onShow: ({ latlng, color, radius }) => {
     feed.refresh({ reveal: true });
     if (latlng) ripple(latlng, color, radius);
@@ -53,6 +94,17 @@ try {
   mapEl.append(msg);
 }
 const map = globe?.map;
+
+// Arrival: the canvas starts invisible over the space backdrop and fades up once the
+// first style has drawn a frame, so the planet comes online instead of popping in.
+if (map) {
+  mapEl.classList.add('arriving');
+  map.once('idle', () => requestAnimationFrame(() => mapEl.classList.remove('arriving')));
+}
+
+// "You are here": a marker from the visitor's address, on request (ui/here.js).
+here = createHere({ map, flyTo: (to) => globe?.flyTo(to), onChange: () => { feed.refresh(); watch.refresh(); } });
+if (map) map.addControl(here.control, 'bottom-right');
 
 // A short pulse on the globe where the selected point sits, so a feed click shows
 // where it landed (alert areas highlight their outline instead).
@@ -354,18 +406,32 @@ window.__huntersEye = {
   selectFirst: (id) => byId.get(id)?.focusFirst?.() ?? false,
   spin: (on) => globe?.spin.set(on),
   brief,
+  here: () => here,
+  watch,
 };
 
 getJson('/api/config')
-  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig }) => {
+  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig, whereami }) => {
     if (basemap) globe?.loadBasemap(basemap, imagery);
     brief.configure(briefConfig);
     detail.configure(describeConfig);
+    here.configure(!!whereami);
+    // The proximity feed needs a place: without the lookup the tab goes, with it the
+    // feed asks once at start (no fly, so the arrival plays out) unless Live was chosen.
+    if (!whereami) {
+      feedTabs.near.hidden = true;
+      showFeedTab('live');
+    } else if (feed.mode() === 'near' && !here.position()) {
+      feed.locate({ fly: false }).then((p) => { if (!p && !chosenTab) showFeedTab('live'); });
+    }
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => (lastSources.length || serverDown) && showStatus(),
       options: (id) => byId.get(id)?.fetchOptions?.() ?? {},
     });
   })
-  .catch((err) => console.warn('No browser fallback:', err.message))
+  .catch((err) => {
+    console.warn('No browser fallback:', err.message);
+    if (!chosenTab) showFeedTab('live'); // no server to place the reader: the Live feed is the useful one
+  })
   .finally(tick);

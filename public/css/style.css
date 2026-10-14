@@ -222,6 +222,9 @@ body.sidebar-open .connecting { left: calc(50% + var(--sidebar-w) / 2); }
    Closed, the sidebar is also hidden (out of the tab order), after its slide. */
 .layout { position: fixed; inset: var(--topbar-h) 0 0 0; }
 .map { position: absolute; inset: 0; z-index: 0; background: var(--bg); transition: left var(--dur-base) var(--ease); } /* z-index keeps the globe's controls under the sidebar */
+/* Arrival (app.js): the first drawn frame fades up over the backdrop, with a touch of scale. */
+.map .maplibregl-canvas { transition: opacity 900ms var(--ease), transform 900ms var(--ease); }
+.map.arriving .maplibregl-canvas { opacity: 0; transform: scale(0.985); }
 body.sidebar-open .map { left: var(--sidebar-w); }
 
 .sidebar { position: absolute; top: 0; bottom: 0; left: 0; width: var(--sidebar-w); z-index: 900;
@@ -238,6 +241,47 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .panel-section h2 { margin: 0 0 var(--space-2); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--muted); }
 .feed-section { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: 0; }
+/* The feed's two views as a tab pair in the heading: Proximity (nearest to you first)
+   and Live (newest first). The chosen one carries the text colour and an accent rule. */
+.feed-tabs { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.feed-tabs [role="tablist"] { display: flex; gap: var(--space-1); margin-left: calc(-1 * var(--space-2)); }
+.feed-tab { all: unset; box-sizing: border-box; cursor: pointer; padding: 2px var(--space-2) 4px; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--muted); font: inherit; letter-spacing: inherit; text-transform: inherit; box-shadow: inset 0 -2px 0 transparent;
+  transition: color var(--dur-base) var(--ease), background var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease); }
+.feed-tab:hover { color: var(--text); background: var(--panel-2); }
+.feed-tab:active { background: var(--panel-3); }
+.feed-tab:focus-visible { box-shadow: var(--ring-inset); }
+.feed-tab[aria-selected="true"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.feed-tab[aria-selected="true"]:focus-visible { box-shadow: var(--ring-inset), inset 0 -2px 0 var(--accent); }
+.feed-tab[hidden] { display: none; }
+
+/* Watchlist (ui/watch.js): one line to add a rule, the rules as a short list, a hint */
+.watch-form { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.watch-keyword { flex: 1 1 140px; min-width: 0; padding: var(--space-1) var(--space-2); background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; font-size: var(--text-md); }
+.watch-keyword::placeholder { color: var(--muted); }
+.watch-keyword:focus-visible, .watch-km:focus-visible { outline: none; box-shadow: var(--ring); }
+.watch-km-label { display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); color: var(--muted); white-space: nowrap; }
+.watch-km { width: 64px; padding: var(--space-1) var(--space-2); background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; font-size: var(--text-md); font-variant-numeric: tabular-nums; }
+.watch-km:disabled { opacity: 0.5; cursor: not-allowed; }
+.watch-add { padding: var(--space-1) var(--space-3); }
+.watch-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.watch-list:empty { display: none; }
+.watch-rule { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-md); }
+.watch-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-hits { font-size: var(--text-xs); font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.watch-remove { padding: 0 var(--space-1); font-size: var(--text-lg); line-height: 1; }
+.watch-hint { font-size: var(--text-xs); line-height: 1.35; margin-top: var(--space-2); }
+.watch-section h2 { margin: 0; }
+.watch-section:not(.open) .collapse { grid-template-rows: 0fr; }
+.watch-section:not(.open) .collapse-body { visibility: hidden; }
+.watch-section:not(.open) .section-toggle svg { transform: rotate(-90deg); }
+.watch-section.open .section-toggle { margin-bottom: var(--space-2); }
+.watch-section.no-anim .collapse, .watch-section.no-anim .section-toggle svg { transition: none; }
+/* A feed row a watch rule caught keeps a star in front of its title */
+.feed li.watched .title::before { content: '★ '; color: var(--accent); }
 
 /* Filters: set once, so they live under the feed in a section that folds away
    (closed by default on phones, app.js). The fold animates with a 0fr/1fr grid row;
@@ -313,6 +357,14 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .feed button:focus-visible { outline: none; box-shadow: var(--ring-inset); }
 .feed button:disabled { cursor: default; }
 .feed button:disabled:hover, .feed button:disabled:active { background: transparent; }
+/* The hero row (feed.js): the newest significant event, one step heavier with a bar in
+   its own colour, so "what is happening right now" reads in one glance. */
+.feed li.hero { --c: var(--accent); }
+.feed li.hero button { box-shadow: inset 3px 0 0 var(--c); padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.feed li.hero .title { font-size: var(--text-base); font-weight: 600; white-space: normal; }
+.feed li.hero .sub { color: var(--text-2); }
+.feed li.hero button[aria-current] { box-shadow: inset 3px 0 0 var(--c); }
+.feed li.hero button[aria-current]:focus-visible { box-shadow: var(--ring-inset), inset 3px 0 0 var(--c); }
 /* The row whose item the detail panel is showing */
 .feed button[aria-current] { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
 .feed button[aria-current]:hover { background: var(--panel-3); }
@@ -324,6 +376,21 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .feed .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed .time { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .feed .sub { grid-column: 2 / 4; color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Proximity view: the distance is the number that leads, so it takes the top right
+   and the time drops to the second line. Empty rows carry no distance text. */
+.feed .dist { display: none; grid-row: 1; grid-column: 3; color: var(--text-2); font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; justify-self: end; }
+.feed.near .dist { display: block; }
+.feed.near .time { grid-row: 2; grid-column: 3; justify-self: end; }
+.feed.near .sub { grid-column: 2 / 3; }
+.feed.near li.hero .dist { color: var(--text); font-weight: 600; }
+.feed-locate { display: grid; gap: var(--space-2); justify-items: start; }
+/* The button sits inside the list, where `.feed button` unsets everything: restore the brief-btn look. */
+.feed li .feed-locate-btn { display: inline-block; width: auto; justify-self: start; grid-template-columns: none; white-space: nowrap; padding: var(--space-1) var(--space-3);
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; }
+.feed li .feed-locate-btn:hover { background: var(--panel-3); }
+.feed li .feed-locate-btn:active { background: var(--panel-4); }
+.feed li .feed-locate-btn:focus-visible { box-shadow: var(--ring); }
+.feed-locate .muted { font-size: var(--text-sm); }
 .feed .system .title { color: var(--muted); font-weight: 400; }
 .feed-empty { color: var(--muted); padding: var(--space-3) var(--space-4); }
 /* Skeleton rows while the feeds are still connecting: the shape of a row, breathing */
@@ -397,6 +464,19 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .maplibregl-ctrl-group button:not(:disabled):is(:hover, :active) .maplibregl-ctrl-icon { filter: invert(1) brightness(1.14); }
 .maplibregl-ctrl-group button.he-ctrl-spin { display: grid; place-items: center; }
 .maplibregl-ctrl-group button.he-ctrl-spin[aria-pressed="true"] { color: var(--accent); }
+.maplibregl-ctrl-group button.he-ctrl-here[aria-pressed="true"] { color: var(--accent); }
+.maplibregl-ctrl-group button.he-ctrl-here[aria-busy="true"] { animation: pulse 1.2s infinite; }
+.he-ctrl-here-group[hidden] { display: none; }
+/* "You are here" (ui/here.js): an accent dot with a soft ring, the city as a small label.
+   The box is the dot; the ring and label hang off it so the marker's anchor is the point. */
+.you { position: relative; width: 12px; height: 12px; pointer-events: auto; }
+.you-dot { position: absolute; inset: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.you-ring { position: absolute; inset: -8px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: 0.6;
+  animation: you-breathe 3s ease-in-out infinite; }
+@keyframes you-breathe { 50% { transform: scale(1.35); opacity: 0.2; } }
+.you-label { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: var(--text-xs); font-weight: 600;
+  color: var(--text); background: var(--glass); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 1px var(--space-2); }
+@media (prefers-reduced-motion: reduce) { .you-ring { animation: none; } }
 .maplibregl-ctrl-group button.he-ctrl-spin[aria-pressed="true"]:hover { color: var(--accent-strong); }
 .maplibregl-ctrl-attrib { background: var(--glass); color: var(--muted); font-size: var(--text-xs);
   padding: 2px var(--space-2); border-top-left-radius: var(--radius-sm); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
@@ -454,6 +534,17 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .describe-text.error { color: var(--bad); }
 .describe-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
 .describe-meta:empty { display: none; }
+/* Follow-ups: the question in the reader's words, the answer under it, then the ask box */
+.describe-thread:empty { display: none; }
+.describe-q { margin: var(--space-3) 0 0; font-size: var(--text-md); color: var(--text-2); font-weight: 600; }
+.describe-q::before { content: '› '; color: var(--accent); }
+.describe-a { margin: var(--space-1) 0 0; white-space: pre-line; font-size: var(--text-md); color: var(--text); }
+.describe-ask-row { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.describe-ask { flex: 1; min-width: 0; padding: var(--space-1) var(--space-2); background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; font-size: var(--text-md); }
+.describe-ask::placeholder { color: var(--muted); }
+.describe-ask:focus-visible { outline: none; box-shadow: var(--ring); }
+.describe-ask-btn { padding: var(--space-1) var(--space-3); }
 
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {

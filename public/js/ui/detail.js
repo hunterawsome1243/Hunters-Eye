@@ -1,4 +1,5 @@
 import { el, num, timeAgo } from './format.js';
+import { bearingDeg, compassPoint, distanceKm } from '../globe/geo.js';
 
 const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 
@@ -6,7 +7,7 @@ const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 // A layer calls show() with a key; calling show() again with the same key refreshes
 // it in place (used for moving things like aircraft and satellites). onShow fires
 // only when the key changes, onClose when the panel goes away.
-export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } = {}) {
+export function createDetailPanel(root, { onClose, onShow, here = () => null, fetchImpl = fetch } = {}) {
   const head = root.querySelector('.detail-head');
   const closeBtn = root.querySelector('.detail-close');
   const swatch = root.querySelector('.detail-swatch');
@@ -24,26 +25,43 @@ export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } =
   const describeBtn = el('button', { type: 'button', class: 'brief-btn describe-btn' }, 'Describe');
   const describeText = el('p', { class: 'describe-text' });
   const describeMeta = el('div', { class: 'describe-meta muted' });
+  // After a description, a one-line form asks a follow-up about the same object; the
+  // answer lands under the question. Only the last answer goes back with the question.
+  const thread = el('div', { class: 'describe-thread' });
+  const askInput = el('input', { type: 'text', class: 'describe-ask', placeholder: 'Ask a follow-up…', maxlength: '300', 'aria-label': 'Ask a follow-up question about this object' });
+  const askBtn = el('button', { type: 'submit', class: 'brief-btn describe-ask-btn' }, 'Ask');
+  const askForm = el('form', { class: 'describe-ask-row' }, askInput, askBtn);
+  askForm.hidden = true;
   const describe = el('div', { class: 'detail-describe', role: 'status', 'aria-live': 'polite' },
     el('div', { class: 'describe-row' }, describeBtn, el('span', { class: 'describe-hint muted' }, 'What this is and why it matters, by Claude.')),
-    describeText, describeMeta);
+    describeText, thread, describeMeta, askForm);
   describe.hidden = true;
   root.append(describe);
   let describing = false;
   let describedKey = null;
+  let lastAnswer = null;
   function resetDescribe() {
     describedKey = null;
+    lastAnswer = null;
     describeText.textContent = '';
     describeText.classList.remove('error');
     describeMeta.textContent = '';
+    thread.replaceChildren();
+    askForm.hidden = true;
+    askInput.value = '';
   }
-  async function runDescribe() {
+  // Both the Describe button and the follow-up form go through here; `question` makes
+  // it a follow-up carrying the last answer.
+  async function runDescribe({ question = null } = {}) {
     if (describing || !currentItem) return;
     describing = true;
     const key = currentKey;
-    describeBtn.setAttribute('aria-busy', 'true'); // stays enabled so keyboard focus is kept
-    describeBtn.textContent = 'Writing…';
+    const busyBtn = question ? askBtn : describeBtn;
+    busyBtn.setAttribute('aria-busy', 'true'); // stays enabled so keyboard focus is kept
+    busyBtn.textContent = question ? '…' : 'Writing…';
     describeText.classList.remove('error');
+    const q = question ? el('p', { class: 'describe-q' }, question) : null;
+    if (q) thread.append(q);
     try {
       const { kind, heading, fields, notes, link } = currentItem;
       const res = await fetchImpl('/api/describe', {
@@ -52,27 +70,39 @@ export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } =
         body: JSON.stringify({
           kind, heading, notes: notes || null, link: link?.href ?? null,
           fields: fields.filter(([, v]) => v != null && v !== '').map(([label, value, sub]) => ({ label, value: String(value), sub: sub ?? null })),
+          question, previous: question ? lastAnswer : null,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       if (key !== currentKey) return; // the user has moved on; don't describe the wrong thing
       describedKey = key;
-      describeText.textContent = data.text;
+      lastAnswer = data.text;
+      if (question) thread.append(el('p', { class: 'describe-a' }, data.text));
+      else describeText.textContent = data.text;
       const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : '';
       describeMeta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
+      askForm.hidden = false;
+      askInput.value = '';
     } catch (err) {
       if (key !== currentKey) return;
+      q?.remove();
+      if (question) askInput.value = question; // keep the question so it can be sent again
       describeText.textContent = err.message;
       describeText.classList.add('error');
       describeMeta.textContent = '';
     } finally {
       describing = false;
-      describeBtn.removeAttribute('aria-busy');
-      describeBtn.textContent = 'Describe';
+      busyBtn.removeAttribute('aria-busy');
+      busyBtn.textContent = question ? 'Ask' : 'Describe';
     }
   }
-  describeBtn.addEventListener('click', runDescribe);
+  describeBtn.addEventListener('click', () => runDescribe());
+  askForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const question = askInput.value.trim();
+    if (question) runDescribe({ question });
+  });
 
   // The panel stays in the DOM while its exit animation runs, then hides for real.
   // Leftover drag styles go too, unless a finger still holds the sheet.
@@ -180,7 +210,12 @@ export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } =
       swatch.style.background = color;
       kicker.textContent = kind;
       title.textContent = heading;
-      rows.replaceChildren(...fields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
+      // With a "you are here" marker set, the last row says how far away this is.
+      const you = latlng ? here() : null;
+      const shownFields = you
+        ? [...fields, ['From you', `${num(distanceKm([you.lat, you.lon], latlng))} km`, `to the ${compassPoint(bearingDeg([you.lat, you.lon], latlng))} of ${you.place ? you.place.split(',')[0] : 'you'}`]]
+        : fields;
+      rows.replaceChildren(...shownFields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
       extra.replaceChildren();
       if (notes) extra.append(notes);
       if (link && /^https?:\/\//.test(link.href)) extra.append(notes ? '\n\n' : '', el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));
@@ -198,6 +233,6 @@ export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } =
     configure(config) {
       describe.hidden = !config;
     },
-    describe: runDescribe,
+    describe: () => runDescribe(),
   };
 }

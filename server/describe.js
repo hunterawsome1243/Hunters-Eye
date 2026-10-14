@@ -16,7 +16,19 @@ Rules:
 - Start with what the object is and why it matters (or doesn't): how strong, how high, how fast, how severe, how unusual, in everyday terms a non-specialist understands.
 - Add the general knowledge that helps read the fields: what a magnitude or depth means for what people felt, what a squawk code or an altitude band means, what kind of satellite this is and what it does, what an alert of this type asks people to do. Keep it general and well known; never invent specifics about this particular object.
 - Use only the record for the object's own facts. Do not guess causes, names, operators, routes or outcomes the record does not contain. If a field says "—" or is missing, leave it out.
-- Times in the record are what the dashboard shows; refer to them as given.`;
+- Times in the record are what the dashboard shows; refer to them as given.
+- A follow-up question may come after your description. Answer it in 40 to 90 words under the same rules. If it is not about this object or the kind of thing it is, say in one sentence that you can only talk about what is on the globe.`;
+
+// The request as a short conversation: the object, then (for a follow-up) the last
+// answer and the question. Only the last answer is carried, so a thread never grows.
+export function toMessages({ question, previous, ...object }) {
+  const messages = [{ role: 'user', content: `Object:\n${JSON.stringify(object)}` }];
+  if (question) {
+    if (previous) messages.push({ role: 'assistant', content: previous });
+    messages.push({ role: 'user', content: `Follow-up question: ${question}` });
+  }
+  return messages;
+}
 
 // Trims the browser's record to what the prompt needs and caps every size.
 export function sanitizeItem(body) {
@@ -31,9 +43,15 @@ export function sanitizeItem(body) {
       .map((f) => ({ label: str(f.label, 40), value: str(f.value, 160), sub: str(f.sub, 80) }))
       .filter((f) => f.label && f.value)
     : [];
-  return { kind, heading, fields, notes: str(body.notes, 300), link: str(body.link, 200) };
+  const out = { kind, heading, fields, notes: str(body.notes, 300), link: str(body.link, 200) };
+  const question = str(body.question, 300)?.trim();
+  if (question) {
+    out.question = question;
+    out.previous = str(body.previous, 1200)?.trim() || null;
+  }
+  return out;
 }
 
 export function createDescribeRoute(options = {}) {
-  return createClaudeRoute({ name: 'Descriptions', system: SYSTEM, label: 'Object', sanitize: sanitizeItem, ...options });
+  return createClaudeRoute({ name: 'Descriptions', system: SYSTEM, messages: toMessages, sanitize: sanitizeItem, ...options });
 }
