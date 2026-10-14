@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server/app.js';
 import { createThrottle } from '../server/brief.js';
-import { createDescribeRoute, sanitizeItem } from '../server/describe.js';
+import { createDescribeRoute, sanitizeItem, toMessages } from '../server/describe.js';
 
 const source = { id: 'earthquakes', name: 'Earthquakes', intervalMs: 60_000, fetch: async () => ({ quakes: [] }) };
 async function serve(describe) {
@@ -69,4 +69,19 @@ test('with a key the route describes the object once per press and reports the c
   } finally {
     close();
   }
+});
+
+test('a follow-up carries the question and the last answer as a short conversation', () => {
+  const plain = sanitizeItem({ kind: 'Aircraft', heading: 'UAL123', question: '  ' });
+  assert.equal('question' in plain, false);
+  assert.equal(toMessages(plain).length, 1);
+  const follow = sanitizeItem({ kind: 'Aircraft', heading: 'UAL123', question: 'Is 7700 serious?', previous: 'It is a general emergency.' });
+  const m = toMessages(follow);
+  assert.deepEqual(m.map((x) => x.role), ['user', 'assistant', 'user']);
+  assert.match(m[0].content, /"heading":"UAL123"/);
+  assert.equal(m[0].content.includes('question'), false);
+  assert.equal(m[1].content, 'It is a general emergency.');
+  assert.match(m[2].content, /Is 7700 serious\?/);
+  const noPrevious = toMessages(sanitizeItem({ kind: 'Aircraft', heading: 'UAL123', question: 'Why?' }));
+  assert.deepEqual(noPrevious.map((x) => x.role), ['user', 'user']);
 });

@@ -465,6 +465,17 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .describe-text.error { color: var(--bad); }
 .describe-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
 .describe-meta:empty { display: none; }
+/* Follow-ups: the question in the reader's words, the answer under it, then the ask box */
+.describe-thread:empty { display: none; }
+.describe-q { margin: var(--space-3) 0 0; font-size: var(--text-md); color: var(--text-2); font-weight: 600; }
+.describe-q::before { content: '› '; color: var(--accent); }
+.describe-a { margin: var(--space-1) 0 0; white-space: pre-line; font-size: var(--text-md); color: var(--text); }
+.describe-ask-row { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.describe-ask { flex: 1; min-width: 0; padding: var(--space-1) var(--space-2); background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; font-size: var(--text-md); }
+.describe-ask::placeholder { color: var(--muted); }
+.describe-ask:focus-visible { outline: none; box-shadow: var(--ring); }
+.describe-ask-btn { padding: var(--space-1) var(--space-3); }
 
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {
