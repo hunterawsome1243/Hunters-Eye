@@ -2,6 +2,26 @@
   "name": "hunters-eye",
   "version": "0.1.0",
   "description": "OSINT dashboard: earthquakes, aircraft, satellites and severe weather on one live 3D globe",
+  "keywords": [
+    "osint",
+    "dashboard",
+    "globe",
+    "maplibre",
+    "earthquakes",
+    "aircraft",
+    "satellites",
+    "weather",
+    "open-data"
+  ],
+  "homepage": "https://github.com/hunterawsome1243/Hunters-Eye#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hunterawsome1243/Hunters-Eye.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hunterawsome1243/Hunters-Eye/issues"
+  },
+  "author": "Hunter (https://github.com/hunterawsome1243)",
   "type": "module",
   "main": "server/index.js",
   "scripts": {
