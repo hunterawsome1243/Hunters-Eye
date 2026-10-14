@@ -27,6 +27,7 @@ Other features:
 - Each source refreshes on its own schedule, sized to that source's rate limits. If one feed fails, its chip turns red, the last good data stays on the map, and the other layers keep running.
 - If the server can't reach OpenSky or CelesTrak at all, your browser fetches that feed itself and the chip says **via browser**. See [Browser fallback](#browser-fallback).
 - Optional **Brief me** button: Claude writes an 80-140 word situation brief of what is on the globe. It appears only when the server has an `ANTHROPIC_API_KEY`; see [Situation brief](#situation-brief-optional).
+- Optional **Describe** button on the detail card: click any object on the globe and Claude explains what it is and why it matters, in 60-110 words. Same key, same limits; see [Describe an object](#describe-an-object-optional).
 
 ## Run it
 
@@ -85,6 +86,14 @@ With `ANTHROPIC_API_KEY` set, a **Situation brief** section appears at the top o
 - The key lives only on the server (`server/brief.js`); the browser never sees it.
 - A brief is about 1,500 tokens in and 250 out, which is roughly **$0.0003** at Haiku 5.5's prices ($0.10 and $0.50 per million tokens). The response shows the cost of each brief.
 - Because the page may be public, the server allows one brief every 5 seconds and 20 an hour across all visitors, so the worst case with Haiku 5.5 is about half a cent an hour. `BRIEF_MODEL` picks another model; the per-brief cost is then only shown if that model's prices are added to `PRICE` in `server/brief.js`.
+
+### Describe an object (optional)
+
+With the same `ANTHROPIC_API_KEY`, the detail card that opens when you click a quake, plane, satellite or alert gets a **Describe** button. Pressing it sends the server what the card already shows (the kind, heading, label/value rows, note and link) and the server asks Claude for a 60-110 word plain-English description: what the object is, why it matters, and the general knowledge that helps read the numbers (what a depth or a squawk code means, what kind of satellite it is, what an alert of that type asks people to do). It uses only the record for the object's own facts and never invents operators, routes or outcomes.
+
+- Route: `POST /api/describe` (`server/describe.js`); the key never reaches the browser.
+- A description is about 600 tokens in and 150 out, roughly **$0.0001** with Haiku 5.5. It has its own throttle of one every 5 seconds and 20 an hour across all visitors, like the brief.
+- A new object clears the last description; nothing is sent until the button is pressed.
 - Without a key the route answers 404 and the section stays hidden.
 
 ## Data sources and limits
@@ -124,7 +133,7 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 | `IMAGERY_TILES` | EOX Sentinel-2 cloudless 2016 | `{z}/{x}/{y}` URL of the imagery drawn on the globe from space. Empty turns imagery off (the vector map covers the globe). |
 | `IMAGERY_ATTRIBUTION`, `IMAGERY_MAXZOOM` | EOX credit, `12` | The credit line for a custom imagery source, and the deepest zoom its tiles are requested at. |
 | `BROWSER_FALLBACK` | on | `off` stops browsers from fetching OpenSky and CelesTrak themselves when the server can't reach them. See [Browser fallback](#browser-fallback). |
-| `ANTHROPIC_API_KEY` | empty | Turns on the **Brief me** button. See [Situation brief](#situation-brief-optional). `BRIEF_MODEL` picks the model (default `claude-haiku-5-5`). |
+| `ANTHROPIC_API_KEY` | empty | Turns on the **Brief me** and **Describe** buttons. See [Situation brief](#situation-brief-optional). `BRIEF_MODEL` picks the model (default `claude-haiku-5-5`). |
 
 Page options: add `?spin=off` to the URL to load with the globe still; the spin button remembers your choice in the browser.
 
@@ -166,8 +175,9 @@ The `--fake` stand-ins (`scripts/fake-upstream.mjs`) mirror each API's documente
 ```
 server/
   index.js            starts the server
-  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief
-  brief.js            the Claude-written situation brief: snapshot sanitising, throttle, pricing
+  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief, POST /api/describe
+  brief.js            the Claude-written situation brief: snapshot sanitising, throttle, pricing, the shared route factory
+  describe.js         the Claude-written description of one clicked object
   lib/poller.js       runs one source on its schedule, caches the result, pauses when idle
   lib/http.js         fetch with User-Agent, timeout, readable errors and retry-after
   lib/geometry.js     polygon simplification for weather outlines

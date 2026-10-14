@@ -65,49 +65,57 @@ export function createThrottle({ minGapMs = 5000, perHour = 20, now = Date.now }
 }
 
 // Default way to ask Claude: the official SDK, Messages API, one short reply.
-export function sdkAsk({ apiKey, model, timeoutMs = 30_000 }) {
+// `system` is the prompt for the job (the brief here; server/describe.js has its own).
+export function sdkAsk({ apiKey, model, timeoutMs = 30_000, system = SYSTEM, label = 'Snapshot' }) {
   const client = new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 1 });
-  return async (snapshot) => {
+  return async (input) => {
     const response = await client.messages.create({
       model,
-      max_tokens: 1024, // room for the brief; thinking is off so none is spent reasoning
+      max_tokens: 1024, // room for the reply; thinking is off so none is spent reasoning
       thinking: { type: 'disabled' },
-      system: SYSTEM,
-      messages: [{ role: 'user', content: `Snapshot:\n${JSON.stringify(snapshot)}` }],
+      system,
+      messages: [{ role: 'user', content: `${label}:\n${JSON.stringify(input)}` }],
     });
     const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
     return { text, usage: response.usage, stopReason: response.stop_reason };
   };
 }
 
-// Express handler factory. `ask(snapshot)` resolves to { text, usage }; tests pass their own.
-export function createBriefRoute({ apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.BRIEF_MODEL || DEFAULT_MODEL, ask, throttle = createThrottle(), express } = {}) {
+// Express handler factory shared by every Claude-written route: the brief and the
+// per-object description. `sanitize(body)` trims the request to what the prompt
+// needs (and throws on junk); `ask(input)` resolves to { text, usage }; tests pass
+// their own `ask`. The key stays on the server, and each route has a throttle.
+export function createClaudeRoute({ name, system, label, sanitize, apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.BRIEF_MODEL || DEFAULT_MODEL, ask, throttle = createThrottle() }) {
   const enabled = !!apiKey;
-  const run = ask ?? (enabled ? sdkAsk({ apiKey, model }) : null);
+  const run = ask ?? (enabled ? sdkAsk({ apiKey, model, system, label }) : null);
   async function handler(req, res) {
-    if (!enabled) return res.status(404).json({ error: 'Briefs are off: no ANTHROPIC_API_KEY is set on the server.' });
+    if (!enabled) return res.status(404).json({ error: `${name} is off: no ANTHROPIC_API_KEY is set on the server.` });
     const gate = throttle.take();
     if (!gate.ok) {
       res.set('Retry-After', String(Math.ceil(gate.retryAfterMs / 1000)));
       return res.status(429).json({ error: gate.reason });
     }
-    let snapshot;
+    let input;
     try {
-      snapshot = sanitizeSnapshot(req.body);
+      input = sanitize(req.body);
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }
     try {
-      const { text, usage, stopReason } = await run(snapshot);
-      if (!text) return res.status(502).json({ error: 'Claude returned an empty brief.' });
-      if (stopReason === 'max_tokens') console.warn('[brief] reply hit max_tokens; it may be cut short');
+      const { text, usage, stopReason } = await run(input);
+      if (!text) return res.status(502).json({ error: 'Claude returned an empty reply.' });
+      if (stopReason === 'max_tokens') console.warn(`[${name}] reply hit max_tokens; it may be cut short`);
       res.json({ text, model, usage, costUsd: estimateCost(model, usage), at: Date.now() });
     } catch (err) {
       const status = err?.status === 429 ? 429 : err?.status === 401 ? 502 : 502;
       const why = err?.status === 401 ? 'The ANTHROPIC_API_KEY on the server was rejected.' : err?.status === 429 ? 'Claude is rate limiting this app; try again shortly.' : `Claude could not be reached: ${err?.message ?? err}`;
-      console.warn('[brief]', err?.status ?? '', err?.message ?? err);
+      console.warn(`[${name}]`, err?.status ?? '', err?.message ?? err);
       res.status(status).json({ error: why });
     }
   }
   return { enabled, model, handler, bodyLimit: MAX_BODY };
+}
+
+export function createBriefRoute(options = {}) {
+  return createClaudeRoute({ name: 'Briefs', system: SYSTEM, label: 'Snapshot', sanitize: sanitizeSnapshot, ...options });
 }

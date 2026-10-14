@@ -2,6 +2,7 @@ import * as maplibregl from 'maplibre-gl';
 import { IMAGERY, IMAGERY_LAYER, IMAGERY_SOURCE, buildStyle, fallbackStyle, imageryLayer, imagerySource } from './globe/style.js';
 import { nearLon } from './globe/geo.js';
 import { createSpin } from './globe/spin.js';
+import { SPACE_LAYER, spaceLayer } from './globe/space.js';
 
 // Draw order for the data layers, bottom to top. globe.js adds one hidden
 // "slot" layer per tier after every style load; ctx.addLayer(spec, tier)
@@ -47,10 +48,11 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
   map.addControl(new SpinControl(spin), 'bottom-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   // No GlobeControl: it would replace the zoom-driven projection with a plain toggle.
-  // Phones: MapLibre unfolds a compact attribution when its text first arrives, and on a
-  // phone it wraps over the scale and the globe until the first drag; start it folded
-  // behind its (i) button instead.
-  if (phone) {
+  // MapLibre unfolds a compact attribution when its text first arrives and leaves it
+  // open until the first drag: on a phone it wraps over the scale and the globe, on a
+  // desktop it is the brightest line on the screen. Start it folded behind its (i)
+  // button instead; the credits are one tap away.
+  {
     const fold = () => {
       const attrib = container.querySelector('.maplibregl-ctrl-attrib.maplibregl-compact-show');
       if (!attrib) return;
@@ -67,6 +69,8 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
   let styleReady = false;
   const styleCallbacks = [];
   map.on('style.load', () => {
+    // The space backdrop goes under everything, before the sphere's background layer.
+    if (!map.getLayer(SPACE_LAYER)) map.addLayer(spaceLayer(), map.getStyle()?.layers?.[0]?.id);
     for (const tier of TIERS) {
       if (!map.getLayer(slotId(tier))) map.addLayer({ id: slotId(tier), type: 'background', layout: { visibility: 'none' } });
     }
