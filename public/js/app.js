@@ -357,9 +357,10 @@ window.__huntersEye = {
 };
 
 getJson('/api/config')
-  .then(({ basemap, imagery, fallback, brief: briefConfig }) => {
+  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig }) => {
     if (basemap) globe?.loadBasemap(basemap, imagery);
     brief.configure(briefConfig);
+    detail.configure(describeConfig);
     fallbacks = createFallbacks(fallback, {
       onData: (id, data) => byId.get(id)?.update(data),
       onChange: () => (lastSources.length || serverDown) && showStatus(),

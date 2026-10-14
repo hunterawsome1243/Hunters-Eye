@@ -1,4 +1,4 @@
-import { el } from './format.js';
+import { el, num, timeAgo } from './format.js';
 
 const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 
@@ -6,7 +6,7 @@ const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
 // A layer calls show() with a key; calling show() again with the same key refreshes
 // it in place (used for moving things like aircraft and satellites). onShow fires
 // only when the key changes, onClose when the panel goes away.
-export function createDetailPanel(root, { onClose, onShow } = {}) {
+export function createDetailPanel(root, { onClose, onShow, fetchImpl = fetch } = {}) {
   const head = root.querySelector('.detail-head');
   const closeBtn = root.querySelector('.detail-close');
   const swatch = root.querySelector('.detail-swatch');
@@ -15,7 +15,64 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   const rows = root.querySelector('.detail-rows');
   const extra = root.querySelector('.detail-extra');
   let currentKey = null;
+  let currentItem = null; // what show() was last given, for the Describe button
   let closing = null; // fallback timer while the exit animation plays
+
+  // "Describe": one button that asks the server for a Claude-written description of
+  // the shown object. Hidden until /api/config says the server has a key. Nothing is
+  // sent until the button is pressed; a new object clears the last description.
+  const describeBtn = el('button', { type: 'button', class: 'brief-btn describe-btn' }, 'Describe');
+  const describeText = el('p', { class: 'describe-text' });
+  const describeMeta = el('div', { class: 'describe-meta muted' });
+  const describe = el('div', { class: 'detail-describe', role: 'status', 'aria-live': 'polite' },
+    el('div', { class: 'describe-row' }, describeBtn, el('span', { class: 'describe-hint muted' }, 'What this is and why it matters, by Claude.')),
+    describeText, describeMeta);
+  describe.hidden = true;
+  root.append(describe);
+  let describing = false;
+  let describedKey = null;
+  function resetDescribe() {
+    describedKey = null;
+    describeText.textContent = '';
+    describeText.classList.remove('error');
+    describeMeta.textContent = '';
+  }
+  async function runDescribe() {
+    if (describing || !currentItem) return;
+    describing = true;
+    const key = currentKey;
+    describeBtn.setAttribute('aria-busy', 'true'); // stays enabled so keyboard focus is kept
+    describeBtn.textContent = 'Writing…';
+    describeText.classList.remove('error');
+    try {
+      const { kind, heading, fields, notes, link } = currentItem;
+      const res = await fetchImpl('/api/describe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind, heading, notes: notes || null, link: link?.href ?? null,
+          fields: fields.filter(([, v]) => v != null && v !== '').map(([label, value, sub]) => ({ label, value: String(value), sub: sub ?? null })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (key !== currentKey) return; // the user has moved on; don't describe the wrong thing
+      describedKey = key;
+      describeText.textContent = data.text;
+      const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : '';
+      describeMeta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
+    } catch (err) {
+      if (key !== currentKey) return;
+      describeText.textContent = err.message;
+      describeText.classList.add('error');
+      describeMeta.textContent = '';
+    } finally {
+      describing = false;
+      describeBtn.removeAttribute('aria-busy');
+      describeBtn.textContent = 'Describe';
+    }
+  }
+  describeBtn.addEventListener('click', runDescribe);
 
   // The panel stays in the DOM while its exit animation runs, then hides for real.
   // Leftover drag styles go too, unless a finger still holds the sheet.
@@ -34,6 +91,8 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
   function hide() {
     if (currentKey === null) return;
     currentKey = null;
+    currentItem = null;
+    resetDescribe();
     cancelDrag(); // closed from elsewhere mid-drag (an alert expiring, a map tap)
     root.classList.add('closing');
     closing = setTimeout(finishHide, 400);
@@ -116,6 +175,8 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
       const changed = key !== currentKey;
       settle(); // reopened mid-close: just keep it
       currentKey = key;
+      currentItem = { kind, heading, fields, notes, link };
+      if (changed && describedKey !== key) resetDescribe();
       swatch.style.background = color;
       kicker.textContent = kind;
       title.textContent = heading;
@@ -133,5 +194,10 @@ export function createDetailPanel(root, { onClose, onShow } = {}) {
     get key() {
       return currentKey;
     },
+    // Called once /api/config is in: shows the Describe button when the server can write descriptions.
+    configure(config) {
+      describe.hidden = !config;
+    },
+    describe: runDescribe,
   };
 }

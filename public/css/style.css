@@ -445,6 +445,16 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .brief-text.error { color: var(--bad); }
 .brief-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
 
+/* Describe (shown only when the server has an API key): the detail card's last block */
+.detail-describe { padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--border); }
+.describe-row { display: flex; align-items: center; gap: var(--space-3); }
+.describe-hint { font-size: var(--text-xs); line-height: 1.35; }
+.describe-text { margin: var(--space-2) 0 0; white-space: pre-line; font-size: var(--text-md); color: var(--text); }
+.describe-text:empty { display: none; }
+.describe-text.error { color: var(--bad); }
+.describe-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
+.describe-meta:empty { display: none; }
+
 /* Below desktop width the chip row shares the bar with nothing else, so drop the freshness text first. */
 @media (max-width: 1023px) {
   .brand { font-size: 0; gap: 0; }
