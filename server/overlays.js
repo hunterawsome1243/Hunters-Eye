@@ -1,15 +1,21 @@
 // Weather overlays: a coarse world grid of current conditions for the globe's
 // heat maps (temperature, wind, rain, cloud), from Open-Meteo.
 //
-// Open-Meteo's forecast API is keyless and free for non-commercial use (about
-// 10,000 location-requests a day). One grid refresh asks for every point of a
-// GRID_DEG grid between 80°S and 80°N (10° -> 612 points, in batches of 100
-// per request), so the default two-hour refresh spends ~7,300 of those a day,
+// Open-Meteo's forecast API is keyless and free for non-commercial use, and it
+// counts every location in a request as one call against its limits: 600 a
+// minute, 5,000 an hour, 10,000 a day, per address, and refuses concurrent
+// requests. One grid refresh asks for every point of a GRID_DEG grid between
+// 80°S and 80°N (10° -> 612 points, 100 per request, one request at a time), so
+// the default two-hour refresh spends ~7,300 of the day's calls,
 // and only while someone is looking: the grid is fetched on the first request
-// and refreshed on a request that finds it older than REFRESH_MIN. Each process
-// start fetches it afresh (a host that sleeps an idle free service costs one grid
-// per wake), and an HTTP 429 is honoured for as long as its Retry-After says. The
-// browser (public/js/ui/overlays.js) interpolates between the points and paints them.
+// and refreshed on a request that finds it older than REFRESH_MIN. A grid goes
+// out in waves of WAVE_POINTS a minute, the tropics and mid-latitudes first, so
+// one refresh never crowds the minute limit (the address may be shared with other
+// users of the host): the first answer is partial, and the poles follow a minute
+// later. Each process start fetches afresh (a host that sleeps an idle free
+// service costs one grid per wake), and an HTTP 429 is honoured for as long as
+// its Retry-After says. The browser (public/js/ui/overlays.js) interpolates
+// between the points and paints them.
 //
 // OPEN_METEO_URL overrides the endpoint (empty turns the overlay off, and
 // /api/config says so); OVERLAY_GRID_DEG and OVERLAY_REFRESH_MIN tune the cost.
@@ -18,7 +24,9 @@ import { getJson } from './lib/http.js';
 export const DEFAULT_URL = 'https://api.open-meteo.com/v1/forecast';
 export const FIELDS = ['temperature', 'wind', 'windDir', 'rain', 'clouds'];
 const CURRENT = 'temperature_2m,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover';
-const BATCH = 100;
+const BATCH = 100; // points per request
+const WAVE_POINTS = 400; // points per minute, under Open-Meteo's 600 with room for whoever shares the address
+const WAVE_GAP_MS = 61_000;
 const FAIL_TTL_MS = 60_000;
 const TIMEOUT_MS = 15_000;
 const LAT_MAX = 80; // the ice caps round the grid off and would cost a third more points
@@ -57,6 +65,12 @@ export function parseBatch(data, expected) {
   });
 }
 
+// The order the points are asked for: the equator first, the poles last, so the
+// first wave of a grid covers the latitudes where almost everyone looks.
+export function fetchOrder(points) {
+  return points.map((p, i) => i).sort((a, b) => Math.abs(points[a][0]) - Math.abs(points[b][0]) || a - b);
+}
+
 export function createOverlaysRoute({
   url = process.env.OPEN_METEO_URL ?? DEFAULT_URL,
   gridDeg = process.env.OVERLAY_GRID_DEG,
@@ -68,53 +82,77 @@ export function createOverlaysRoute({
   const grid = gridSpec(gridDeg);
   const refreshMs = Math.max(Number(refreshMin) || 120, 15) * 60_000;
   const points = gridPoints(grid);
-  let data = null; // { at, grid, fields, next }
+  const order = fetchOrder(points);
+  const units = { temperature: '°C', wind: 'km/h', rain: 'mm', clouds: '%' };
+  let data = null; // the grid being served: { at, updated, grid, fields, done, total, partial, units, refreshMs }
+  let next = null; // its replacement, built in waves while the old grid is still served
+  let inflight = null; // the wave on its way
+  let waveAt = 0; // when the last wave went out; the next waits WAVE_GAP_MS
   let retryAt = 0; // after a failure, no attempt before this
   let lastError = null;
-  let inflight = null;
 
-  // The batches go out together (seven requests for the default grid, well inside
-  // Open-Meteo's 600 a minute), so one slow answer costs one timeout, not seven in a
-  // row, and the first grid is on screen in seconds rather than a minute.
-  async function fetchGrid() {
-    const batches = [];
-    for (let i = 0; i < points.length; i += BATCH) batches.push(points.slice(i, i + BATCH));
-    const parsed = await Promise.all(batches.map((batch) => {
-      const q = new URLSearchParams({ latitude: batch.map((p) => p[0]).join(','), longitude: batch.map((p) => p[1]).join(','), current: CURRENT, timeformat: 'unixtime' });
-      return fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }).then((data) => parseBatch(data, batch.length));
-    }));
-    const fields = Object.fromEntries(FIELDS.map((f) => [f, []]));
-    for (const p of parsed.flat()) for (const f of FIELDS) fields[f].push(p[f]);
-    return { at: now(), grid, fields, units: { temperature: '°C', wind: 'km/h', rain: 'mm', clouds: '%' }, refreshMs };
+  function emptyGrid(t) {
+    return { at: t, updated: t, grid, fields: Object.fromEntries(FIELDS.map((f) => [f, new Array(points.length).fill(null)])), done: 0, total: points.length, partial: true, units, refreshMs };
   }
 
-  // The grid, refreshed when stale. A refresh that fails keeps the last grid (marked
-  // stale in the answer) and is not tried again for a minute, or for as long as a
+  // One wave: the next WAVE_POINTS points of the grid, one request at a time (Open-
+  // Meteo also refuses concurrent requests from one address: "Too many concurrent
+  // requests"), each written into the grid as it comes back. The first failure ends
+  // the wave, so a dead host costs one timeout, and what did arrive is kept.
+  async function fetchWave(g) {
+    const idx = order.slice(g.done, g.done + WAVE_POINTS);
+    for (let i = 0; i < idx.length; i += BATCH) {
+      const batch = idx.slice(i, i + BATCH);
+      const q = new URLSearchParams({ latitude: batch.map((j) => points[j][0]).join(','), longitude: batch.map((j) => points[j][1]).join(','), current: CURRENT, timeformat: 'unixtime' });
+      const parsed = parseBatch(await fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }), batch.length);
+      batch.forEach((j, k) => { for (const f of FIELDS) g.fields[f][j] = parsed[k][f]; });
+      g.done += batch.length;
+      g.partial = g.done < points.length;
+      g.updated = now();
+    }
+    return g;
+  }
+
+  // The grid, refreshed when stale. The first request waits for the first wave and
+  // gets a partial grid; later requests get what has arrived while the rest comes
+  // in, a wave a minute. A complete grid is served until its replacement is
+  // complete too. A wave that fails keeps what there is (marked stale or partial
+  // in the answer) and is not tried again for a minute, or for as long as a
   // Retry-After header asks: a rate-limited Open-Meteo is left alone, not hammered.
   async function current() {
     const t = now();
-    const fresh = data && t - data.at < refreshMs;
-    if (fresh) return data;
-    if (!inflight && t >= retryAt) {
-      inflight = fetchGrid().then((d) => { data = d; lastError = null; return d; }).catch((err) => {
+    const complete = data && !data.partial;
+    if (complete && t - data.at < refreshMs) return data;
+    if (!inflight && t >= retryAt && t - waveAt >= WAVE_GAP_MS) {
+      if (data?.partial && t - data.at >= refreshMs) data = emptyGrid(t); // too old to finish: start over
+      let g;
+      if (data && data.partial) g = data;
+      else if (complete) g = next ?? (next = emptyGrid(t));
+      else g = data = emptyGrid(t);
+      waveAt = t;
+      inflight = fetchWave(g).then(() => {
+        lastError = null;
+        if (g === next && !g.partial) { data = g; next = null; }
+        return g;
+      }).catch((err) => {
         retryAt = now() + Math.max(FAIL_TTL_MS, err.retryAfterMs || 0);
         lastError = err;
         throw err;
       }).finally(() => { inflight = null; });
     }
-    if (data) {
-      inflight?.catch(() => {}); // the old grid is served meanwhile; the failure is logged below
+    if (data && data.done > 0) {
+      inflight?.catch(() => {}); // what there is goes out now; the failure is logged below
       return data;
     }
     if (!inflight) throw lastError;
-    return inflight;
+    return inflight.then(() => data);
   }
 
   async function handler(req, res) {
     if (!enabled) return res.status(404).json({ error: 'Weather overlays are off' });
     try {
       const d = await current();
-      res.set('Cache-Control', 'public, max-age=300');
+      res.set('Cache-Control', d.partial ? 'no-store' : 'public, max-age=300');
       res.json({ ...d, stale: now() - d.at >= refreshMs, error: lastError?.message ?? null });
     } catch (err) {
       console.warn('Weather overlay:', err.message);

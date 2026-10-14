@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server/app.js';
-import { STEPS, createOverlaysRoute, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
+import { STEPS, createOverlaysRoute, fetchOrder, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
 import { HttpError } from '../server/lib/http.js';
 import { RAMPS, colorAt, convert, latOfRow, localUnits, nightPolygon, paintField, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
 import { firesDay } from '../public/js/ui/overlays.js';
@@ -50,36 +50,95 @@ test('parseBatch takes one point or many and refuses a short or refused answer',
   assert.throws(() => parseBatch({ error: true, reason: 'Too many' }, 1), /Too many/);
 });
 
-test('the route fetches the grid in batches on the first request, serves it from memory, refreshes when stale', async () => {
+test('the points go out equator first, so the first wave covers where people look', () => {
+  const pts = gridPoints(gridSpec(10));
+  const order = fetchOrder(pts);
+  assert.equal(order.length, 612);
+  assert.equal(new Set(order).size, 612, 'every point once');
+  assert.equal(pts[order[0]][0], 0, 'the equator row leads');
+  assert.ok(order.slice(0, 396).every((i) => Math.abs(pts[i][0]) <= 50), '50°S to 50°N is 396 points, all in the first wave');
+  assert.ok(order.slice(400).every((i) => Math.abs(pts[i][0]) >= 60), 'the rest of the 60° rows and the poles come in the second wave');
+  assert.equal(Math.abs(pts[order.at(-1)][0]), 80);
+});
+
+test('the route fetches the grid in waves of 400 points a minute, serves what has arrived, refreshes when stale', async () => {
   const calls = [];
   let t = 1_000_000;
   const route = createOverlaysRoute({ url: 'https://meteo.test/v1/forecast', fetchJson: fakeJson(calls), now: () => t, refreshMin: '120' });
   assert.ok(route.enabled);
   const { base, close } = await serve({ overlays: route });
+  const get = async () => { const res = await fetch(`${base}/api/overlays/weather`); return { status: res.status, cache: res.headers.get('cache-control'), body: await res.json() }; };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
   try {
     const config = await (await fetch(`${base}/api/config`)).json();
     assert.deepEqual(config.overlays, { weather: true });
-    const res = await fetch(`${base}/api/overlays/weather`);
-    assert.equal(res.status, 200);
-    const d = await res.json();
-    assert.equal(calls.length, 7); // 612 points, 100 a request
-    assert.ok(decodeURIComponent(calls[0]).startsWith('https://meteo.test/v1/forecast?latitude=-80,-80'));
+    const first = await get();
+    assert.equal(first.status, 200);
+    assert.equal(calls.length, 4, '400 points, 100 a request, one request at a time, in the first wave');
+    assert.ok(calls.every((u, i) => i === 0 || calls.indexOf(u) === i), 'each batch once');
+    assert.ok(decodeURIComponent(calls[0]).startsWith('https://meteo.test/v1/forecast?latitude=0,0'));
     assert.ok(decodeURIComponent(calls[0]).includes('current=temperature_2m,wind_speed_10m'));
+    const d = first.body;
+    assert.equal(d.partial, true);
+    assert.equal(d.done, 400);
+    assert.equal(d.total, 612);
+    assert.equal(first.cache, 'no-store', 'a partial grid is not cached');
     assert.equal(d.fields.temperature.length, 612);
-    assert.equal(d.fields.temperature[0], -80);
-    assert.equal(d.fields.temperature.at(-1), 80);
+    assert.equal(d.fields.temperature[8 * 36], 0, 'the equator row is in');
+    assert.equal(d.fields.temperature[0], null, 'the 80°S row is not yet');
     assert.equal(d.units.temperature, '°C');
     assert.equal(d.refreshMs, 120 * 60_000);
     assert.equal(d.stale, false);
     assert.equal(d.error, null);
-    await fetch(`${base}/api/overlays/weather`);
+    await get();
+    assert.equal(calls.length, 4, 'the second wave waits a minute');
+    t += 61_000;
+    const mid = (await get()).body;
+    assert.ok(mid.done >= 400 && mid.partial, `what has arrived (${mid.done}) goes out while the wave runs`);
+    await settle();
+    assert.equal(calls.length, 7, '212 points: 100, 100, 12');
+    const whole = (await get()).body;
+    assert.equal(whole.partial, false);
+    assert.equal(whole.done, 612);
+    assert.equal(whole.fields.temperature[0], -80);
+    assert.equal(whole.fields.temperature.at(-1), 80);
+    assert.equal(whole.at, 1_000_000);
+    assert.equal(whole.updated, t);
+    await get();
     assert.equal(calls.length, 7, 'served from memory');
     t += 121 * 60_000;
-    const again = await (await fetch(`${base}/api/overlays/weather`)).json();
+    const refreshStart = t;
+    const again = (await get()).body;
     assert.equal(again.at, 1_000_000, 'the old grid is served while the refresh runs');
-    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(again.stale, true);
+    await settle();
+    assert.equal(calls.length, 11, 'the replacement starts with a wave of its own');
+    assert.equal((await get()).body.at, 1_000_000, 'and is not served until it is complete');
+    t += 61_000;
+    await get();
+    await settle();
     assert.equal(calls.length, 14);
-    assert.equal((await (await fetch(`${base}/api/overlays/weather`)).json()).at, t);
+    const fresh = (await get()).body;
+    assert.equal(fresh.at, refreshStart);
+    assert.equal(fresh.partial, false);
+    assert.equal(fresh.stale, false);
+  } finally {
+    close();
+  }
+});
+
+test('a partial grid nobody asked to finish is started over once it is old', async () => {
+  const calls = [];
+  let t = 7_000_000;
+  const route = createOverlaysRoute({ url: 'https://meteo.test', fetchJson: fakeJson(calls), now: () => t });
+  const { base, close } = await serve({ overlays: route });
+  try {
+    assert.equal((await (await fetch(`${base}/api/overlays/weather`)).json()).done, 400);
+    t += 3 * 3600_000;
+    const d = await (await fetch(`${base}/api/overlays/weather`)).json();
+    assert.equal(calls.length, 8, 'a new first wave, not the old grid\'s second');
+    assert.equal(d.at, t);
+    assert.equal(d.done, 400);
   } finally {
     close();
   }
@@ -96,12 +155,19 @@ test('a failed grid is a 502 the first time, kept stale after, and not retried f
     const res = await fetch(`${base}/api/overlays/weather`);
     assert.equal(res.status, 502);
     assert.match((await res.json()).error, /timed out/);
-    assert.equal(calls.length, 7, 'every batch goes out together');
+    assert.equal(calls.length, 1, 'the first request fails and the rest of the wave is not sent');
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 7, 'not retried within a minute');
+    assert.equal(calls.length, 1, 'not retried within a minute');
     fail = false;
     t += 61_000;
-    assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 200);
+    const partial = await fetch(`${base}/api/overlays/weather`);
+    assert.equal(partial.status, 200);
+    assert.equal((await partial.json()).done, 400);
+    t += 61_000;
+    await fetch(`${base}/api/overlays/weather`);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(calls.length, 8, 'the second wave completes the grid');
+    assert.equal((await (await fetch(`${base}/api/overlays/weather`)).json()).partial, false);
     fail = true;
     t += 3 * 3600_000;
     const stale = await (await fetch(`${base}/api/overlays/weather`)).json();
@@ -110,6 +176,7 @@ test('a failed grid is a 502 the first time, kept stale after, and not retried f
     const after = await (await fetch(`${base}/api/overlays/weather`)).json();
     assert.match(after.error, /timed out/);
     assert.equal(after.fields.temperature.length, 612, 'the last grid is kept');
+    assert.equal(after.fields.temperature[0], -80, 'whole, not the failed replacement');
   } finally {
     close();
   }
@@ -123,13 +190,13 @@ test('a 429 with Retry-After is honoured: no further requests until it has passe
   const { base, close } = await serve({ overlays: route });
   try {
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 7);
+    assert.equal(calls.length, 1);
     t += 10 * 60_000;
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 7, 'left alone while Retry-After runs');
+    assert.equal(calls.length, 1, 'left alone while Retry-After runs');
     t += 51 * 60_000;
     await fetch(`${base}/api/overlays/weather`);
-    assert.equal(calls.length, 14, 'tried again once the hour has passed');
+    assert.equal(calls.length, 2, 'tried again once the hour has passed');
   } finally {
     close();
   }
