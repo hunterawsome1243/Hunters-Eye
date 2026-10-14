@@ -25,7 +25,8 @@ const ICONS = {
 // after a layer toggle, an entry that landed while a filter hid its row, or a source
 // that lands late in the first load, stay quiet.
 // onArrive(entry) fires for the newest significant entry that lands after the first load.
-export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false, onArrive = () => {} } = {}) {
+// onNew(entry) fires for every non-system entry that lands after the first load (the watchlist).
+export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false, onArrive = () => {}, onNew = () => {} } = {}) {
   const entries = new Map();
   const nodes = new Map(); // id -> { li, button, time, entry }
   let renderQueued = false;
@@ -111,6 +112,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         n.time.textContent = timeAgo(e.time, now);
       }
       n.li.classList.toggle('hero', e === hero);
+      n.li.classList.toggle('watched', !!e.watched);
       if (e === hero) n.li.style.setProperty('--c', e.color);
       if (isCurrent(e)) n.button.setAttribute('aria-current', 'true');
       else n.button.removeAttribute('aria-current');
@@ -168,6 +170,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       }
       entries.set(entry.id, entry);
       prune(entry.source);
+      if (!prior && !entry.system && settledAt !== null && now > settledAt + SETTLE_MS) onNew(entry);
       refresh();
     },
     remove(id) {

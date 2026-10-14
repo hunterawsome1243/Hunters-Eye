@@ -4,6 +4,7 @@ import { createGlobe } from './globe.js';
 import { createBrief } from './ui/brief.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createHere } from './ui/here.js';
+import { createWatch } from './ui/watch.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
 import { createSummary } from './ui/summary.js';
@@ -26,8 +27,11 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
   // Ambient: the newest significant event (a strong quake, an Extreme or Severe alert,
   // an emergency squawk) ripples where it landed as its row arrives.
   onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
+  onNew: (entry) => watch.check(entry),
 });
 let here = null; // created once the globe exists, below
+// Watchlist rules (ui/watch.js): a hit marks the row and notifies.
+const watch = createWatch(document.getElementById('watch'), { here: () => here?.position() ?? null });
 const detail = createDetailPanel(document.getElementById('detail'), {
   here: () => here?.position() ?? null,
   onShow: ({ latlng, color, radius }) => {
@@ -65,7 +69,7 @@ if (map) {
 }
 
 // "You are here": a marker from the visitor's address, on request (ui/here.js).
-here = createHere({ map, flyTo: (to) => globe?.flyTo(to), onChange: () => feed.refresh() });
+here = createHere({ map, flyTo: (to) => globe?.flyTo(to), onChange: () => { feed.refresh(); watch.refresh(); } });
 if (map) map.addControl(here.control, 'bottom-right');
 
 // A short pulse on the globe where the selected point sits, so a feed click shows
@@ -369,6 +373,7 @@ window.__huntersEye = {
   spin: (on) => globe?.spin.set(on),
   brief,
   here: () => here,
+  watch,
 };
 
 getJson('/api/config')
