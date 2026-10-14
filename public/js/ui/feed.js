@@ -1,5 +1,5 @@
 import { el, num, timeAgo } from './format.js';
-import { tweenNumber } from './tween.js';
+import { setText, tweenNumber } from './tween.js';
 import { nearest } from './near.js';
 
 const PER_SOURCE_LIMIT = 300;
@@ -204,6 +204,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       for (const e of entries.values()) e.shown = true;
       listEl.replaceChildren();
       listEl.scrollTop = 0;
+      setText(countEl, ''); // the other view's number must not linger a frame; the new one counts up
       refresh();
     },
     mode: () => mode,

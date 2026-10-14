@@ -283,7 +283,8 @@ try {
     const dists = await page.$$eval('#feed .dist', (els) => els.map((e) => parseFloat(e.textContent.replace(/,/g, ''))));
     const ascending = dists.every((d, i) => Number.isFinite(d) && (i === 0 || d >= dists[i - 1]));
     check('Proximity feed: nearest first, a distance on every row', dists.length > 1 && ascending, `${dists.length} rows, first ${dists[0]} km, last ${dists[dists.length - 1]} km`);
-    const reach = await page.locator('#feed-count').textContent();
+    // The reach counts up over 400 ms, so wait for it rather than read the first frame.
+    const reach = await page.waitForFunction(() => { const t = document.getElementById('feed-count').textContent; return /≤ [\d,]+ km\)$/.test(t) && t; }, null, { timeout: 5_000 }).then((h) => h.jsonValue()).catch(() => 'did not settle on a reach');
     check('Proximity feed: the heading says how far it reaches', /≤ [\d,]+ km/.test(reach), reach);
     await page.locator('.he-ctrl-here').click(); // forget again
     check('You are here: pressing again removes the marker', (await page.locator('.you').count()) === 0);
