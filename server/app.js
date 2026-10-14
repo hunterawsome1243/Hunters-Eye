@@ -4,6 +4,7 @@ import { SourcePoller } from './lib/poller.js';
 import { createBriefRoute } from './brief.js';
 import { createDescribeRoute } from './describe.js';
 import { createWhereamiRoute } from './whereami.js';
+import { createOverlaysRoute } from './overlays.js';
 
 const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 
@@ -34,6 +35,7 @@ export function createApp(sources, pollerOptions, {
   brief = createBriefRoute(),
   describe = createDescribeRoute(),
   whereami = createWhereamiRoute(),
+  overlays = createOverlaysRoute(),
   trustProxy = process.env.TRUST_PROXY ?? (process.env.RENDER ? '1' : ''),
 } = {}) {
   const pollers = new Map(sources.map((s) => [s.id, new SourcePoller(s, pollerOptions)]));
@@ -58,10 +60,11 @@ export function createApp(sources, pollerOptions, {
   // while this server can't reach them (public/js/fallback.js). `brief` says
   // whether the "Brief me" button should exist (server/brief.js), `describe`
   // whether the detail card's "Describe" button should (server/describe.js),
-  // `whereami` whether the "You are here" button should (server/whereami.js).
+  // `whereami` whether the "You are here" button should (server/whereami.js),
+  // `overlays.weather` whether the weather heat maps have a grid to draw (server/overlays.js).
   app.get('/api/config', (req, res) => {
     const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
-    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null, describe: describe.enabled ? { model: describe.model } : null, whereami: whereami.enabled });
+    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null, describe: describe.enabled ? { model: describe.model } : null, whereami: whereami.enabled, overlays: { weather: overlays.enabled } });
   });
 
   // A Claude-written situation brief of what the dashboard shows, on demand.
@@ -71,6 +74,8 @@ export function createApp(sources, pollerOptions, {
   app.post('/api/describe', express.json({ limit: describe.bodyLimit }), describe.handler);
   // Where the visitor is, from their address (server/whereami.js), on request only.
   app.get('/api/whereami', whereami.handler);
+  // The current-conditions grid behind the weather overlays (server/overlays.js).
+  app.get('/api/overlays/weather', overlays.handler);
 
   // One cheap call the browser makes every few seconds: health, counts and versions
   // of every source. The browser fetches a source's data only when its version moves.

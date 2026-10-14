@@ -119,7 +119,32 @@ function whereami() {
   return { success: true, ip: '203.0.113.7', city: 'Denver', region: 'Colorado', country: 'United States', latitude: 39.7392, longitude: -104.9903 };
 }
 
+// Open-Meteo stand-in: a plausible planet (warm equator, cold poles, a wet band,
+// a storm in the Atlantic) for the weather overlays, at every point asked for.
+function openMeteo(req) {
+  const q = new URL(req.url, 'http://x').searchParams;
+  const lats = (q.get('latitude') ?? '').split(',').map(Number);
+  const lons = (q.get('longitude') ?? '').split(',').map(Number);
+  const t = Math.floor(now() / 1000);
+  const units = { time: 'unixtime', temperature_2m: '°C', wind_speed_10m: 'km/h', wind_direction_10m: '°', precipitation: 'mm', cloud_cover: '%' };
+  const list = lats.map((lat, i) => {
+    const lon = lons[i];
+    const storm = Math.exp(-(((lat - 30) / 9) ** 2 + ((lon + 50) / 12) ** 2));
+    const temperature = Math.round((29 - 0.62 * Math.abs(lat) + 5 * Math.sin((lon + 20) / 40) - 8 * storm) * 10) / 10;
+    const wind = Math.round((12 + 10 * Math.abs(Math.sin(lat / 25)) + 70 * storm) * 10) / 10;
+    const precipitation = Math.round((Math.max(0, 1.5 * Math.exp(-(((lat - 5) / 10) ** 2)) * (1 + Math.sin(lon / 30))) + 9 * storm) * 100) / 100;
+    const clouds = Math.round(Math.min(100, 25 + 40 * Math.abs(Math.sin(lat / 18 + lon / 60)) + 70 * storm));
+    return {
+      latitude: lat, longitude: lon, generationtime_ms: 0.1, utc_offset_seconds: 0, timezone: 'GMT', timezone_abbreviation: 'GMT', elevation: 0,
+      current_units: units,
+      current: { time: t, temperature_2m: temperature, wind_speed_10m: wind, wind_direction_10m: Math.round((lat + lon + 360) % 360), precipitation, cloud_cover: clouds },
+    };
+  });
+  return list.length === 1 ? list[0] : list;
+}
+
 export const routes = {
+  '/open-meteo': openMeteo,
   '/whereami': whereami,
   '/nws': nws,
   '/zones': nwsZone,

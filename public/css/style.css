@@ -467,6 +467,30 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .maplibregl-ctrl-group button.he-ctrl-here[aria-pressed="true"] { color: var(--accent); }
 .maplibregl-ctrl-group button.he-ctrl-here[aria-busy="true"] { animation: pulse 1.2s infinite; }
 .he-ctrl-here-group[hidden] { display: none; }
+/* Overlays (ui/overlays.js): a labelled button at the top left of the globe, and
+   the legend strip under it while a weather wash is on. */
+.he-overlays { display: grid; gap: var(--space-2); justify-items: start; }
+.maplibregl-ctrl-group button.he-ctrl-overlays { display: inline-flex; align-items: center; gap: 6px; width: auto; height: 32px; padding: 0 12px 0 10px;
+  font-size: var(--text-md); font-weight: 600; letter-spacing: 0.01em; }
+.maplibregl-ctrl-group button.he-ctrl-overlays[aria-expanded="true"] { color: var(--text); background: var(--panel-2); }
+.maplibregl-ctrl-group button.he-ctrl-overlays svg { flex: none; }
+.overlay-legend { display: grid; gap: 3px; width: 148px; padding: 6px 8px 7px; background: var(--glass); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--text-2); animation: overlay-in var(--dur-base) var(--ease); }
+@keyframes overlay-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .overlay-legend { animation: none; } }
+.overlay-legend[hidden] { display: none; }
+.overlay-legend-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overlay-legend-bar { display: block; height: 6px; border-radius: 3px; }
+.overlay-legend-ends { display: flex; justify-content: space-between; color: var(--muted); font-variant-numeric: tabular-nums; }
+.overlays-popover { min-width: 200px; padding-bottom: var(--space-3); }
+.overlay-group { display: grid; gap: 2px; margin-top: var(--space-2); }
+.overlay-head { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 2px; }
+.overlay-row { display: flex; align-items: center; gap: var(--space-2); padding: 3px 0; cursor: pointer; color: var(--text); }
+.overlay-row:has(input:disabled) { color: var(--muted); cursor: not-allowed; }
+.overlay-row input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: inherit; }
+.overlay-row .muted { font-size: var(--text-sm); }
+.overlay-note { margin-top: var(--space-1); max-width: 240px; color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
+.banner.show ~ .map .maplibregl-ctrl-top-left { margin-top: 44px; }
 /* "You are here" (ui/here.js): an accent dot with a soft ring, the city as a small label.
    The box is the dot; the ring and label hang off it so the marker's anchor is the point. */
 .you { position: relative; width: 12px; height: 12px; pointer-events: auto; }

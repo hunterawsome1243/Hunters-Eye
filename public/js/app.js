@@ -4,6 +4,7 @@ import { createGlobe } from './globe.js';
 import { createBrief } from './ui/brief.js';
 import { createDetailPanel } from './ui/detail.js';
 import { createHere } from './ui/here.js';
+import { createOverlays } from './ui/overlays.js';
 import { createWatch } from './ui/watch.js';
 import { createFeed } from './ui/feed.js';
 import { createStatus } from './ui/status.js';
@@ -105,6 +106,12 @@ if (map) {
 // "You are here": a marker from the visitor's address, on request (ui/here.js).
 here = createHere({ map, flyTo: (to) => globe?.flyTo(to), onChange: () => { feed.refresh(); watch.refresh(); } });
 if (map) map.addControl(here.control, 'bottom-right');
+
+// Overlays: the button at the top left of the globe and the washes it draws under
+// the data (ui/overlays.js). Created before the layer modules, so its layers mount
+// first after each style load and sit below theirs in the 'shapes' tier.
+const overlays = createOverlays({ map, globe, clockOffset: () => clockOffset });
+if (map) map.addControl(overlays.control, 'top-left');
 
 // A short pulse on the globe where the selected point sits, so a feed click shows
 // where it landed (alert areas highlight their outline instead).
@@ -407,15 +414,17 @@ window.__huntersEye = {
   spin: (on) => globe?.spin.set(on),
   brief,
   here: () => here,
+  overlays,
   watch,
 };
 
 getJson('/api/config')
-  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig, whereami }) => {
+  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig, whereami, overlays: overlaysConfig }) => {
     if (basemap) globe?.loadBasemap(basemap, imagery);
     brief.configure(briefConfig);
     detail.configure(describeConfig);
     here.configure(!!whereami);
+    overlays.configure(overlaysConfig);
     // The proximity feed needs a place: without the lookup the tab goes, with it the
     // feed asks once at start (no fly, so the arrival plays out) unless Live was chosen.
     if (!whereami) {
