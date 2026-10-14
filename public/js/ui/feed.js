@@ -4,6 +4,7 @@ import { tweenNumber } from './tween.js';
 const PER_SOURCE_LIMIT = 300;
 const DISPLAY_LIMIT = 200;
 const SETTLE_MS = 2000; // entries added this long after the first load count as "new"
+const HERO_MAX_AGE_MS = 6 * 3_600_000; // older significant events are history, not the hero
 
 // Small icons for system rows (feed failed / recovered, imagery switched) in place of a
 // colour dot. The icon takes the row's colour, so error and warn share the "!".
@@ -86,6 +87,9 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     // again when a layer toggle or a filter brings the row back).
     const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
     let arrived = null;
+    // One hero: the newest significant entry on show (a strong quake, an Extreme or
+    // Severe alert, an emergency squawk), as long as it is less than six hours old.
+    const hero = shown.find((e) => e.significant && !e.system && now - e.time < HERO_MAX_AGE_MS) ?? null;
 
     const lis = shown.map((e) => {
       let n = nodes.get(e.id);
@@ -106,6 +110,8 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       } else {
         n.time.textContent = timeAgo(e.time, now);
       }
+      n.li.classList.toggle('hero', e === hero);
+      if (e === hero) n.li.style.setProperty('--c', e.color);
       if (isCurrent(e)) n.button.setAttribute('aria-current', 'true');
       else n.button.removeAttribute('aria-current');
       return n.li;

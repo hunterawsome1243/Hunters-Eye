@@ -54,6 +54,13 @@ try {
 }
 const map = globe?.map;
 
+// Arrival: the canvas starts invisible over the space backdrop and fades up once the
+// first style has drawn a frame, so the planet comes online instead of popping in.
+if (map) {
+  mapEl.classList.add('arriving');
+  map.once('idle', () => requestAnimationFrame(() => mapEl.classList.remove('arriving')));
+}
+
 // A short pulse on the globe where the selected point sits, so a feed click shows
 // where it landed (alert areas highlight their outline instead).
 function ripple(latlng, color, radius, opts) {

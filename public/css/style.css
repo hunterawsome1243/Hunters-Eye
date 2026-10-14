@@ -222,6 +222,9 @@ body.sidebar-open .connecting { left: calc(50% + var(--sidebar-w) / 2); }
    Closed, the sidebar is also hidden (out of the tab order), after its slide. */
 .layout { position: fixed; inset: var(--topbar-h) 0 0 0; }
 .map { position: absolute; inset: 0; z-index: 0; background: var(--bg); transition: left var(--dur-base) var(--ease); } /* z-index keeps the globe's controls under the sidebar */
+/* Arrival (app.js): the first drawn frame fades up over the backdrop, with a touch of scale. */
+.map .maplibregl-canvas { transition: opacity 900ms var(--ease), transform 900ms var(--ease); }
+.map.arriving .maplibregl-canvas { opacity: 0; transform: scale(0.985); }
 body.sidebar-open .map { left: var(--sidebar-w); }
 
 .sidebar { position: absolute; top: 0; bottom: 0; left: 0; width: var(--sidebar-w); z-index: 900;
@@ -313,6 +316,14 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .feed button:focus-visible { outline: none; box-shadow: var(--ring-inset); }
 .feed button:disabled { cursor: default; }
 .feed button:disabled:hover, .feed button:disabled:active { background: transparent; }
+/* The hero row (feed.js): the newest significant event, one step heavier with a bar in
+   its own colour, so "what is happening right now" reads in one glance. */
+.feed li.hero { --c: var(--accent); }
+.feed li.hero button { box-shadow: inset 3px 0 0 var(--c); padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.feed li.hero .title { font-size: var(--text-base); font-weight: 600; white-space: normal; }
+.feed li.hero .sub { color: var(--text-2); }
+.feed li.hero button[aria-current] { box-shadow: inset 3px 0 0 var(--c); }
+.feed li.hero button[aria-current]:focus-visible { box-shadow: var(--ring-inset), inset 3px 0 0 var(--c); }
 /* The row whose item the detail panel is showing */
 .feed button[aria-current] { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
 .feed button[aria-current]:hover { background: var(--panel-3); }
