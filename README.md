@@ -1,6 +1,14 @@
 # Hunter's Eye
 
+[![CI](https://github.com/hunterawsome1243/Hunters-Eye/actions/workflows/ci.yml/badge.svg)](https://github.com/hunterawsome1243/Hunters-Eye/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 An open-source intelligence (OSINT) dashboard that fuses four free public data feeds onto one live 3D globe: spin it, tilt it, and zoom from space, where Earth is drawn from satellite imagery, down to street level, where it becomes a real map with roads, water, buildings and labels.
+
+**Live demo:** <https://hunters-eye.onrender.com> (free hosting, so the first visit after a quiet spell takes about a minute to wake up).
+
+![The dashboard on test data: earthquakes, aircraft, satellites and weather alerts on the globe, with the live feed and filters in the sidebar](docs/globe-space.png)
+
+Everything is free and keyless, the code is MIT licensed, and new data layers are two small files. See [Build your own](#build-your-own).
 
 | Layer | What you see | Source |
 | --- | --- | --- |
@@ -34,6 +42,18 @@ Then open <http://localhost:3000>. That is the only command; no API keys are nee
 Optional settings live in `.env` (copy `.env.example`). The most useful one is a free OpenSky API client, which makes aircraft refresh every ~1.5 minutes instead of every ~17. See [Configuration](#configuration).
 
 `npm run dev` restarts the server when you edit server code.
+
+## Build your own
+
+Hunter's Eye is meant to be a starting point. Fork it, rename it, point it at your own data.
+
+1. **Fork** the repository on GitHub (or click **Use this template** if it is shown), then clone your copy and run `npm install && npm start`.
+2. **Add a layer.** [`examples/natural-events/`](examples/natural-events/) is a complete, tested layer for NASA's wildfire, volcano and storm feed, with copy-paste steps. Swap its URL and parsing for any feed you like.
+3. **Remove what you don't need.** Each feed is one entry in `server/sources/index.js` and one in `public/js/layers/index.js`; delete both to drop it.
+4. **Change the look.** Colours and layout live in `public/css/style.css`; the basemap and imagery are environment variables (`BASEMAP_STYLE`, `IMAGERY_TILES`, see [Configuration](#configuration)).
+5. **Put it online** with the included Render Blueprint ([Deploy on Render](#deploy-on-render)). Set `USER_AGENT` to your own project name and contact URL.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, tests, the two module contracts and the ground rules for adding data sources (keyless by default, inside the provider's limits, secrets on the server, licences checked).
 
 ## How it works
 
@@ -135,6 +155,8 @@ npm run smoke -- --fake --browser-blocked   # ...and the browser is refused too;
 npm run smoke -- --fake --shots             # also saves docs/globe-space.png, docs/globe-region.png and a phone run
 ```
 
+GitHub Actions runs `npm test` and `npm run smoke -- --fake` on every push to main and every pull request (`.github/workflows/ci.yml`).
+
 The smoke test starts the server, opens the dashboard in headless Chromium, waits for every source, checks each layer has items, clicks an item in each layer and a plane on the globe, checks that planes cluster from space and separate up close, that the satellite ground track wraps the globe, that the magnitude filter hides circles, that the view filter reaches the server, that "reduce motion" stops the spin, and fails on any browser console error or server warning. It saves a screenshot to `docs/screenshot.png`. It needs a Playwright Chromium once: `npx playwright install chromium` (or set `CHROMIUM_PATH` to an existing Chrome/Chromium). Headless Chromium draws the globe with SwiftShader (software WebGL2), so the run is slow but needs no GPU.
 
 The `--fake` stand-ins (`scripts/fake-upstream.mjs`) mirror each API's documented response shape, and the globe's style and tile hosts are answered locally (the app's own offline style with Natural Earth continents, empty tiles), so you can test the whole app with no network.
@@ -161,6 +183,7 @@ public/
   js/layers/          one module per globe layer, matching the server sources
   js/ui/              summary bar, live feed, detail panel, brief, formatting helpers
 scripts/              smoke test, the fake upstream APIs, the land-file builder
+examples/             a complete extra layer (NASA EONET natural events) to copy from
 test/                 unit tests (node:test)
 ```
 
@@ -169,7 +192,7 @@ test/                 unit tests (node:test)
 1. Write `server/sources/<name>.js` exporting `{ id, name, intervalMs, fetch() }`, where `fetch()` returns `{ data, count }` (optionally `note` and `nextDelayMs`) or throws. Add it to `server/sources/index.js`.
 2. Write `public/js/layers/<name>.js` with a default `create(ctx)` that returns the layer object described at the top of `public/js/layers/index.js` (sources and layers are added in `mount()`, which runs after every style load), and add it to the list and the draw order there.
 
-The summary chip, health indicator, feed integration and refresh logic come for free.
+The summary chip, health indicator, feed integration and refresh logic come for free. [`examples/natural-events/`](examples/natural-events/) walks through a complete one.
 
 ## What I learned
 
@@ -179,3 +202,15 @@ The summary chip, health indicator, feed integration and refresh logic come for 
 - **Styles are documents, not APIs.** Instead of calling `setProjection`, `addLayer` and friends on a live map and hoping the differ keeps them, the app builds the whole style JSON (basemap plus projection, sky, imagery, buildings) with a pure function and swaps it in. Every layer re-mounts itself after each style load, which also makes "the basemap failed to load" a non-event.
 - **Ambient animation needs a budget.** The spin is one 1-second camera ease at a time, chained on `moveend`, so the map renders only while easing and stops for the first gesture, a hidden tab, "reduce motion", an open detail panel or a view filter that would refetch on every step.
 - **Keep the key on the server, and cap what a stranger can spend.** The Brief me button is one route with a 5-second gap and an hourly cap; the browser never sees the key, and the response says what each press cost.
+
+## License and credits
+
+The code is released under the [MIT License](LICENSE): use it, change it and build on it, commercially or not, as long as the copyright notice stays with it.
+
+The data and map content are not covered by that licence; each keeps its provider's terms, and the app shows the required credit lines on the map:
+
+- Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL), served by [OpenFreeMap](https://openfreemap.org/).
+- Imagery: [Sentinel-2 cloudless 2016](https://s2maps.eu/) by EOX IT Services GmbH, CC BY 4.0 (contains modified Copernicus Sentinel data 2016). Later years are CC BY-NC-SA, so check before switching `IMAGERY_TILES`.
+- NASA GIBS Blue Marble and Natural Earth continents: public domain.
+- Feeds: USGS and the National Weather Service (US government, public domain), the [OpenSky Network](https://opensky-network.org/about/terms-of-use) (check its terms of use before any commercial use) and [CelesTrak](https://celestrak.org/).
+- Libraries: [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) (BSD-3-Clause), [satellite.js](https://github.com/shashwatak/satellite-js) (MIT), [Express](https://expressjs.com/) (MIT).

@@ -1,0 +1,9 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "id": "EONET_1", "title": "Wildfire near Example Ridge", "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_1", "date": "2026-10-13T00:00:00Z", "categories": [{ "id": "wildfires", "title": "Wildfires" }] }, "geometry": { "type": "Point", "coordinates": [-120.5, 38.2] } },
+    { "type": "Feature", "properties": { "id": "EONET_2", "title": "Example Volcano", "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_2", "date": "2026-10-10T00:00:00Z", "categories": [{ "id": "volcanoes", "title": "Volcanoes" }] }, "geometry": { "type": "Point", "coordinates": [14.99, 37.75] } },
+    { "type": "Feature", "properties": { "id": "EONET_3", "title": "Tropical Storm Example", "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_3", "date": "2026-10-11T00:00:00Z", "categories": [{ "id": "severeStorms", "title": "Severe Storms" }] }, "geometry": { "type": "Point", "coordinates": [140.1, 20.3] } },
+    { "type": "Feature", "properties": { "id": "EONET_3", "title": "Tropical Storm Example", "link": "https://eonet.gsfc.nasa.gov/api/v3/events/EONET_3", "date": "2026-10-12T00:00:00Z", "categories": [{ "id": "severeStorms", "title": "Severe Storms" }] }, "geometry": { "type": "Point", "coordinates": [138.4, 22.0] } }
+  ]
+}
