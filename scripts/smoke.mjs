@@ -319,6 +319,13 @@ try {
     await page.locator('#overlays-popover input[type="checkbox"]').first().check(); // Night side
     const night = await page.waitForFunction(() => window.__huntersEye.map.getSource('he-overlay-night')?.serialize().data?.geometry?.coordinates?.[0]?.length > 100, null, { timeout: 5_000 }).then(() => true).catch(() => false);
     check('Overlays: the night side is a polygon round the antisolar point', night);
+    // A keyboard user: the arrow keys walk the fields, and the menu's refresh after
+    // each change must not throw away the control they are on.
+    await page.locator('#overlays-popover input[value="temperature"]').focus();
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(100);
+    const keys = await page.evaluate(() => ({ field: window.__huntersEye.overlays.state().weather, inside: document.getElementById('overlays-popover').contains(document.activeElement), on: document.activeElement?.value }));
+    check('Overlays: arrow keys change the field without losing focus', keys.field === 'wind' && keys.inside && keys.on === 'wind', JSON.stringify(keys));
     await page.keyboard.press('Escape');
     check('Overlays: Escape closes the menu', !(await page.locator('#overlays-popover').isVisible()));
     await page.reload();

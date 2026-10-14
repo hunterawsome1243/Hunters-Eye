@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server/app.js';
-import { createOverlaysRoute, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
+import { STEPS, createOverlaysRoute, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
+import { HttpError } from '../server/lib/http.js';
 import { RAMPS, colorAt, convert, latOfRow, localUnits, nightPolygon, paintField, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
 import { firesDay } from '../public/js/ui/overlays.js';
 
@@ -31,7 +32,14 @@ test('the grid runs 80°S to 80°N in rows, west to east in columns', () => {
   assert.deepEqual(pts[36], [-70, -180]);
   assert.deepEqual(pts.at(-1), [80, 170]);
   assert.equal(gridSpec('abc').step, 10);
-  assert.equal(gridSpec(1).step, 2.5); // never finer than 2.5°
+  assert.equal(gridSpec(1).step, 5, 'never finer than 5°');
+  assert.equal(gridSpec(7).step, 7.5, 'snaps to a spacing that closes round the planet');
+  assert.equal(gridSpec(100).step, 30);
+  for (const s of STEPS) {
+    const g = gridSpec(s);
+    assert.equal(g.cols * g.step, 360, `${s}° columns meet the first`);
+    assert.equal(gridPoints(g).length, g.rows * g.cols);
+  }
 });
 
 test('parseBatch takes one point or many and refuses a short or refused answer', () => {
@@ -102,6 +110,26 @@ test('a failed grid is a 502 the first time, kept stale after, and not retried f
     const after = await (await fetch(`${base}/api/overlays/weather`)).json();
     assert.match(after.error, /timed out/);
     assert.equal(after.fields.temperature.length, 612, 'the last grid is kept');
+  } finally {
+    close();
+  }
+});
+
+test('a 429 with Retry-After is honoured: no further requests until it has passed', async () => {
+  let t = 9_000_000;
+  const calls = [];
+  const fetchJson = async (url) => { calls.push(url); throw new HttpError(429, 'api.open-meteo.com answered HTTP 429', 3_600_000); };
+  const route = createOverlaysRoute({ url: 'https://meteo.test', fetchJson, now: () => t });
+  const { base, close } = await serve({ overlays: route });
+  try {
+    assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
+    assert.equal(calls.length, 7);
+    t += 10 * 60_000;
+    assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
+    assert.equal(calls.length, 7, 'left alone while Retry-After runs');
+    t += 51 * 60_000;
+    await fetch(`${base}/api/overlays/weather`);
+    assert.equal(calls.length, 14, 'tried again once the hour has passed');
   } finally {
     close();
   }

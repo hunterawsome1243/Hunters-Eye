@@ -43,11 +43,13 @@ export function firesDay(now = Date.now()) {
 export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = () => 0, locale = navigator.language } = {}) {
   const state = { weather: null, night: false, fires: false, ...recall() };
   const units = localUnits(locale);
-  let weatherEnabled = false; // from /api/config
+  let weatherEnabled = null; // from /api/config; null until it answers
   let grid = null; // the server's answer: { at, grid, fields, refreshMs, stale }
   let gridError = '';
   let loading = null;
-  let painted = ''; // which field the image currently shows
+  let painted = ''; // which field the map's image source currently shows
+  let image = { key: '', url: '' }; // the last field painted, as a PNG; a style reload reuses it instead of painting again
+  let menu = null; // the popover's controls, built once so a keyboard user's focus survives a refresh
   let nightTimer = 0;
   let weatherTimer = 0;
   let fireFailures = [];
@@ -116,20 +118,25 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     weatherTimer = setTimeout(() => { loadGrid().then(scheduleWeather); }, wait);
   }
 
+  // Painting half a million pixels and encoding them takes a noticeable moment on a
+  // phone, so a field is painted once per grid: a style reload (the basemap arriving
+  // at startup) only hands the map the same image again.
   function paint() {
     if (!state.weather || !grid || !canvas || !ready()) return;
-    if (painted === `${state.weather}:${grid.at}`) return;
-    const ramp = RAMPS[state.weather];
-    const ctx2d = canvas.getContext('2d');
-    const image = ctx2d.createImageData(IMAGE_W, IMAGE_H);
-    paintField(grid.grid, grid.fields[state.weather], ramp, IMAGE_W, IMAGE_H, image.data);
-    ctx2d.putImageData(image, 0, 0);
-    const url = canvas.toDataURL('image/png');
+    const key = `${state.weather}:${grid.at}`;
+    if (painted === key) return;
+    if (image.key !== key) {
+      const ctx2d = canvas.getContext('2d');
+      const pixels = ctx2d.createImageData(IMAGE_W, IMAGE_H);
+      paintField(grid.grid, grid.fields[state.weather], RAMPS[state.weather], IMAGE_W, IMAGE_H, pixels.data);
+      ctx2d.putImageData(pixels, 0, 0);
+      image = { key, url: canvas.toDataURL('image/png') };
+    }
     const src = map.getSource(WEATHER_SRC);
-    if (src) src.updateImage({ url, coordinates: IMAGE_CORNERS });
-    else globe.addSource(WEATHER_SRC, { type: 'image', url, coordinates: IMAGE_CORNERS });
-    addLayer({ id: WEATHER_SRC, type: 'raster', source: WEATHER_SRC, paint: { 'raster-opacity': 0.62, 'raster-resampling': 'linear', 'raster-fade-duration': 300 } }, 'shapes');
-    painted = `${state.weather}:${grid.at}`;
+    if (src) src.updateImage({ url: image.url, coordinates: IMAGE_CORNERS });
+    else globe.addSource(WEATHER_SRC, { type: 'image', url: image.url, coordinates: IMAGE_CORNERS });
+    addLayer({ id: WEATHER_SRC, type: 'raster', source: WEATHER_SRC, paint: { 'raster-opacity': 0.62, 'raster-resampling': 'linear', 'raster-fade-duration': 300 } });
+    painted = key;
   }
 
   // --- the night side --------------------------------------------------------
@@ -187,6 +194,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     painted = ''; // a new style has no image source
     globe.addLayer({ id: SLOT, type: 'background', layout: { visibility: 'none' } }, 'shapes');
     apply();
+    scheduleWeather(); // a remembered field keeps refreshing even if /api/config never answers
   }
   globe?.onStyle(mount);
 
@@ -202,36 +210,51 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
 
   // --- the menu --------------------------------------------------------------
   function gridNote() {
+    if (weatherEnabled === null) return 'Asking the server about its weather grid…';
     if (!weatherEnabled) return 'The server has no weather grid (OPEN_METEO_URL is empty).';
     if (loading && !grid) return 'Loading the weather grid…';
     if (!grid) return gridError ? `Weather grid unavailable: ${gridError}` : 'Open-Meteo, current conditions on a 10° grid.';
     const when = `updated ${timeAgo(grid.at)}`;
     return gridError ? `Open-Meteo, ${when}; ${gridError}.` : `Open-Meteo, current conditions, ${when}.`;
   }
-  function renderMenu() {
-    if (!popover || popover.hidden) return;
+  // The controls are built once and patched after: rebuilding them while the menu
+  // is open would throw away the input a keyboard user is on after every arrow key.
+  function buildMenu() {
+    const inputs = new Map();
     const weatherRows = [['', 'None', 'No weather wash'], ...WEATHER].map(([id, name, hint]) => {
       const input = el('input', { type: 'radio', name: 'he-overlay-weather', value: id });
-      input.checked = (state.weather ?? '') === id;
-      input.disabled = !weatherEnabled && !!id;
-      input.addEventListener('change', () => set({ weather: id || null }));
+      input.addEventListener('change', () => { if (input.checked) set({ weather: id || null }); });
+      inputs.set(id, input);
       return el('label', { class: 'overlay-row', title: hint }, input, el('span', {}, name));
     });
     const night = el('input', { type: 'checkbox' });
-    night.checked = state.night;
     night.addEventListener('change', () => set({ night: night.checked }));
     const fires = el('input', { type: 'checkbox' });
-    fires.checked = state.fires;
     fires.addEventListener('change', () => { firesDown = false; fireFailures = []; set({ fires: fires.checked }); });
+    const note = el('div', { class: 'hint overlay-note' });
+    const firesNote = el('div', { class: 'hint overlay-note' }, 'The fire tiles (NASA GIBS) are not reachable right now.');
     popover.replaceChildren(
       el('div', { class: 'popover-title' }, 'Overlays'),
       el('div', { class: 'overlay-group', role: 'radiogroup', 'aria-label': 'Weather overlay' }, el('div', { class: 'overlay-head' }, 'Weather'), ...weatherRows),
-      el('div', { class: 'hint overlay-note' }, gridNote()),
+      note,
       el('div', { class: 'overlay-group' }, el('div', { class: 'overlay-head' }, 'Also'),
         el('label', { class: 'overlay-row', title: 'The half of the planet in darkness right now' }, night, el('span', {}, 'Night side')),
         el('label', { class: 'overlay-row', title: 'Active fires and hot spots detected by NASA\'s VIIRS satellites in the last day' }, fires, el('span', {}, 'Fires'), el('span', { class: 'muted' }, 'last day'))),
-      ...(state.fires && firesDown ? [el('div', { class: 'hint overlay-note' }, 'The fire tiles (NASA GIBS) are not reachable right now.')] : []),
+      firesNote,
     );
+    menu = { inputs, night, fires, note, firesNote };
+  }
+  function renderMenu() {
+    if (!popover || popover.hidden) return;
+    if (!menu) buildMenu();
+    for (const [id, input] of menu.inputs) {
+      input.checked = (state.weather ?? '') === id;
+      input.disabled = weatherEnabled === false && !!id;
+    }
+    menu.night.checked = state.night;
+    menu.fires.checked = state.fires;
+    menu.note.textContent = gridNote();
+    menu.firesNote.hidden = !(state.fires && firesDown);
   }
   function renderLegend() {
     if (!legendEl) return;
