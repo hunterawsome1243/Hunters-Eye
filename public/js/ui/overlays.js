@@ -44,7 +44,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   const state = { weather: null, night: false, fires: false, ...recall() };
   const units = localUnits(locale);
   let weatherEnabled = null; // from /api/config; null until it answers
-  let grid = null; // the server's answer: { at, grid, fields, refreshMs, stale }
+  let grid = null; // the server's answer: { at, updated, grid, fields, partial, refreshMs, stale }
   let gridError = '';
   let loading = null;
   let painted = ''; // which field the map's image source currently shows
@@ -96,9 +96,9 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
         grid = data;
-        gridError = data.error && data.stale ? `last refresh failed (${data.error})` : '';
-        painted = '';
+        gridError = data.error && (data.stale || data.partial) ? `last refresh failed (${data.error})` : '';
         paint();
+        scheduleWeather(); // a partial grid is asked for again soon, a whole one when it is old
       } catch (err) {
         gridError = err.message;
         console.warn('Weather overlay:', err.message);
@@ -110,11 +110,15 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     })();
     return loading;
   }
-  // While a field shows, ask again once the grid is older than its refresh.
+  // While a field shows, ask again once the grid is older than its refresh. The
+  // server sends a grid in waves a minute apart (the poles last), so a partial
+  // grid is asked for again every few seconds until it is whole.
   function scheduleWeather() {
     clearTimeout(weatherTimer);
     if (!state.weather) return;
-    const wait = grid ? Math.max(30_000, grid.refreshMs - (Date.now() - grid.at)) : 60_000;
+    let wait = 60_000;
+    if (grid?.partial) wait = gridError ? 60_000 : 15_000;
+    else if (grid) wait = Math.max(30_000, grid.refreshMs - (Date.now() - grid.at));
     weatherTimer = setTimeout(() => { loadGrid().then(scheduleWeather); }, wait);
   }
 
@@ -123,7 +127,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   // at startup) only hands the map the same image again.
   function paint() {
     if (!state.weather || !grid || !canvas || !ready()) return;
-    const key = `${state.weather}:${grid.at}`;
+    const key = `${state.weather}:${grid.updated ?? grid.at}`;
     if (painted === key) return;
     if (image.key !== key) {
       const ctx2d = canvas.getContext('2d');
@@ -214,8 +218,10 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     if (!weatherEnabled) return 'The server has no weather grid (OPEN_METEO_URL is empty).';
     if (loading && !grid) return 'Loading the weather grid…';
     if (!grid) return gridError ? `Weather grid unavailable: ${gridError}` : 'Open-Meteo, current conditions on a 10° grid.';
-    const when = `updated ${timeAgo(grid.at)}`;
-    return gridError ? `Open-Meteo, ${when}; ${gridError}.` : `Open-Meteo, current conditions, ${when}.`;
+    const when = `updated ${timeAgo(grid.updated ?? grid.at)}`;
+    if (gridError) return `Open-Meteo, ${when}; ${gridError}.`;
+    if (grid.partial) return `Open-Meteo, ${when}; the far north and south are on their way.`;
+    return `Open-Meteo, current conditions, ${when}.`;
   }
   // The controls are built once and patched after: rebuilding them while the menu
   // is open would throw away the input a keyboard user is on after every arrow key.
