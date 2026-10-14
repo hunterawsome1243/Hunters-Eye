@@ -171,6 +171,10 @@ body.alert-live .topbar::after { opacity: 0.7; animation: edge-breathe 4s ease-i
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none;
   transition: background-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease); }
 .dot.ok { background: var(--ok); box-shadow: var(--glow-ok); }
+/* The heartbeat: the one dot that says the picture is alive breathes slowly. Only its
+   glow moves, so nothing around it repaints. */
+.status.live .dot.ok { animation: heartbeat 3s ease-in-out infinite; }
+@keyframes heartbeat { 50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.06); } }
 .dot.loading { background: var(--muted); animation: pulse 1.2s infinite; }
 .dot.stale { background: var(--warn); }
 .dot.error { background: var(--bad); box-shadow: var(--glow-bad); }
@@ -457,6 +461,8 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 
 @media (max-width: 760px) {
   :root { --sidebar-w: min(86vw, 320px); }
+  /* A lone ring next to the hamburger reads as a second button; the chips need the room more. */
+  .brand { display: none; }
   body.sidebar-open .map { left: 0; }
   /* The panel rides over the map and the detail sheet behind a scrim; a tap on the
      scrim or a leftward swipe closes it (vertical gestures still scroll the feed). */
