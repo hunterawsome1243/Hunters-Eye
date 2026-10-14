@@ -3,9 +3,10 @@
 //
 // Open-Meteo's forecast API is keyless and free for non-commercial use, and it
 // counts every location in a request as one call against its limits: 600 a
-// minute, 5,000 an hour, 10,000 a day, per address. One grid refresh asks for
-// every point of a GRID_DEG grid between 80°S and 80°N (10° -> 612 points, 100
-// per request), so the default two-hour refresh spends ~7,300 of the day's calls,
+// minute, 5,000 an hour, 10,000 a day, per address, and refuses concurrent
+// requests. One grid refresh asks for every point of a GRID_DEG grid between
+// 80°S and 80°N (10° -> 612 points, 100 per request, one request at a time), so
+// the default two-hour refresh spends ~7,300 of the day's calls,
 // and only while someone is looking: the grid is fetched on the first request
 // and refreshed on a request that finds it older than REFRESH_MIN. A grid goes
 // out in waves of WAVE_POINTS a minute, the tropics and mid-latitudes first, so
@@ -94,20 +95,21 @@ export function createOverlaysRoute({
     return { at: t, updated: t, grid, fields: Object.fromEntries(FIELDS.map((f) => [f, new Array(points.length).fill(null)])), done: 0, total: points.length, partial: true, units, refreshMs };
   }
 
-  // One wave: the next WAVE_POINTS points of the grid, their batches sent together
-  // so one slow answer costs one timeout, written into the grid as they come back.
+  // One wave: the next WAVE_POINTS points of the grid, one request at a time (Open-
+  // Meteo also refuses concurrent requests from one address: "Too many concurrent
+  // requests"), each written into the grid as it comes back. The first failure ends
+  // the wave, so a dead host costs one timeout, and what did arrive is kept.
   async function fetchWave(g) {
     const idx = order.slice(g.done, g.done + WAVE_POINTS);
-    const batches = [];
-    for (let i = 0; i < idx.length; i += BATCH) batches.push(idx.slice(i, i + BATCH));
-    const parsed = await Promise.all(batches.map((batch) => {
-      const q = new URLSearchParams({ latitude: batch.map((i) => points[i][0]).join(','), longitude: batch.map((i) => points[i][1]).join(','), current: CURRENT, timeformat: 'unixtime' });
-      return fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }).then((data) => parseBatch(data, batch.length));
-    }));
-    batches.forEach((batch, k) => batch.forEach((i, j) => { for (const f of FIELDS) g.fields[f][i] = parsed[k][j][f]; }));
-    g.done += idx.length;
-    g.partial = g.done < points.length;
-    g.updated = now();
+    for (let i = 0; i < idx.length; i += BATCH) {
+      const batch = idx.slice(i, i + BATCH);
+      const q = new URLSearchParams({ latitude: batch.map((j) => points[j][0]).join(','), longitude: batch.map((j) => points[j][1]).join(','), current: CURRENT, timeformat: 'unixtime' });
+      const parsed = parseBatch(await fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }), batch.length);
+      batch.forEach((j, k) => { for (const f of FIELDS) g.fields[f][j] = parsed[k][f]; });
+      g.done += batch.length;
+      g.partial = g.done < points.length;
+      g.updated = now();
+    }
     return g;
   }
 

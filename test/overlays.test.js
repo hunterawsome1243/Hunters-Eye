@@ -74,7 +74,8 @@ test('the route fetches the grid in waves of 400 points a minute, serves what ha
     assert.deepEqual(config.overlays, { weather: true });
     const first = await get();
     assert.equal(first.status, 200);
-    assert.equal(calls.length, 4, '400 points, 100 a request, in the first wave');
+    assert.equal(calls.length, 4, '400 points, 100 a request, one request at a time, in the first wave');
+    assert.ok(calls.every((u, i) => i === 0 || calls.indexOf(u) === i), 'each batch once');
     assert.ok(decodeURIComponent(calls[0]).startsWith('https://meteo.test/v1/forecast?latitude=0,0'));
     assert.ok(decodeURIComponent(calls[0]).includes('current=temperature_2m,wind_speed_10m'));
     const d = first.body;
@@ -92,7 +93,8 @@ test('the route fetches the grid in waves of 400 points a minute, serves what ha
     await get();
     assert.equal(calls.length, 4, 'the second wave waits a minute');
     t += 61_000;
-    assert.equal((await get()).body.done, 400, 'what has arrived goes out while the wave runs');
+    const mid = (await get()).body;
+    assert.ok(mid.done >= 400 && mid.partial, `what has arrived (${mid.done}) goes out while the wave runs`);
     await settle();
     assert.equal(calls.length, 7, '212 points: 100, 100, 12');
     const whole = (await get()).body;
@@ -153,9 +155,9 @@ test('a failed grid is a 502 the first time, kept stale after, and not retried f
     const res = await fetch(`${base}/api/overlays/weather`);
     assert.equal(res.status, 502);
     assert.match((await res.json()).error, /timed out/);
-    assert.equal(calls.length, 4, 'the first wave goes out together');
+    assert.equal(calls.length, 1, 'the first request fails and the rest of the wave is not sent');
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 4, 'not retried within a minute');
+    assert.equal(calls.length, 1, 'not retried within a minute');
     fail = false;
     t += 61_000;
     const partial = await fetch(`${base}/api/overlays/weather`);
@@ -164,7 +166,7 @@ test('a failed grid is a 502 the first time, kept stale after, and not retried f
     t += 61_000;
     await fetch(`${base}/api/overlays/weather`);
     await new Promise((r) => setTimeout(r, 20));
-    assert.equal(calls.length, 11, 'the second wave completes the grid');
+    assert.equal(calls.length, 8, 'the second wave completes the grid');
     assert.equal((await (await fetch(`${base}/api/overlays/weather`)).json()).partial, false);
     fail = true;
     t += 3 * 3600_000;
@@ -188,13 +190,13 @@ test('a 429 with Retry-After is honoured: no further requests until it has passe
   const { base, close } = await serve({ overlays: route });
   try {
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 1);
     t += 10 * 60_000;
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 4, 'left alone while Retry-After runs');
+    assert.equal(calls.length, 1, 'left alone while Retry-After runs');
     t += 51 * 60_000;
     await fetch(`${base}/api/overlays/weather`);
-    assert.equal(calls.length, 8, 'tried again once the hour has passed');
+    assert.equal(calls.length, 2, 'tried again once the hour has passed');
   } finally {
     close();
   }
