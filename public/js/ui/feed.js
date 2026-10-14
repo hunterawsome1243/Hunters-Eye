@@ -76,9 +76,11 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     if (!here()) {
       const err = locateError();
       return el('li', { class: 'feed-empty feed-locate' },
-        el('span', {}, err ? `Could not place you: ${err}` : 'Nearest things first, measured from where you are.'),
-        el('button', { type: 'button', class: 'brief-btn feed-locate-btn', onclick: () => api.locate() }, err ? 'Try again' : 'Find me'),
-        el('span', { class: 'muted' }, 'Your place comes from your network address, city accuracy. The Live feed needs no place.'));
+        el('span', {}, err ? (/^could not place/i.test(err) ? err : `Could not place you: ${err}`) : 'Nearest things first, measured from where you are.'),
+        el('button', { type: 'button', class: 'brief-btn feed-locate-btn', onclick: () => api.locate({ browser: true }) }, err ? 'Try again' : 'Find me'),
+        el('span', { class: 'muted' }, err
+          ? 'Try again asks the server once more, then your browser for its own location (it will ask you first). The Live feed needs no place.'
+          : 'Your place comes from your network address, city accuracy. The Live feed needs no place.'));
     }
     return el('li', { class: 'feed-empty' }, 'Nothing with a position on the feeds yet.');
   }

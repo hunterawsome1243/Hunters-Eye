@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server/app.js';
-import { createWhereamiRoute, isPrivate, parseLookup } from '../server/whereami.js';
+import { DEFAULT_URL, createWhereamiRoute, fillUrl, isPrivate, parseLookup } from '../server/whereami.js';
 
 const source = { id: 'earthquakes', name: 'Earthquakes', intervalMs: 60_000, fetch: async () => ({ quakes: [] }) };
 async function serve(opts) {
@@ -25,6 +25,18 @@ test('parseLookup keeps the coordinates and a readable place, and rejects refusa
   assert.deepEqual(parseLookup({ lat: '1.5', lon: '2.5' }).place, '');
   assert.throws(() => parseLookup({ success: false, message: 'Reserved range' }), /Reserved range/);
   assert.throws(() => parseLookup({ city: 'Nowhere' }), /no coordinates/);
+  // The other services in the default chain
+  assert.equal(parseLookup({ latitude: 39.7, longitude: -104.9, city: 'Denver', region: 'Colorado', country_name: 'United States' }).place, 'Denver, Colorado, United States');
+  assert.equal(parseLookup({ latitude: 39.7, longitude: -104.9, cityName: 'Denver', regionName: 'Colorado', countryName: 'United States' }).place, 'Denver, Colorado, United States');
+  assert.throws(() => parseLookup({ error: true, reason: 'RateLimited' }), /RateLimited/);
+});
+
+test('fillUrl puts the address in, and drops its path segment for the server\'s own address', () => {
+  assert.equal(fillUrl('https://ipwho.is/{ip}', '203.0.113.7'), 'https://ipwho.is/203.0.113.7');
+  assert.equal(fillUrl('https://ipwho.is/{ip}', ''), 'https://ipwho.is/');
+  assert.equal(fillUrl('https://ipapi.co/{ip}/json/', ''), 'https://ipapi.co/json/');
+  assert.equal(fillUrl('https://freeipapi.com/api/json/{ip}', ''), 'https://freeipapi.com/api/json/');
+  assert.equal(DEFAULT_URL.split(',').length, 3);
 });
 
 test('the route looks up the visitor once, caches it, and uses the forwarded address behind a proxy', async () => {
@@ -59,12 +71,40 @@ test('without a lookup URL the route is off, and a failed lookup is a clear 502'
   } finally {
     off.close();
   }
-  const failing = createWhereamiRoute({ url: 'https://geo.example/{ip}', fetchImpl: async () => ({ ok: false, status: 429 }) });
+  const calls = [];
+  const failing = createWhereamiRoute({ url: 'https://geo.example/{ip}', fetchImpl: async (u) => { calls.push(u); return { ok: false, status: 503 }; } });
   const { base, close } = await serve({ whereami: failing });
   try {
     const res = await fetch(`${base}/api/whereami`);
     assert.equal(res.status, 502);
-    assert.match((await res.json()).error, /HTTP 429/);
+    assert.match((await res.json()).error, /geo.example: HTTP 503/);
+    await fetch(`${base}/api/whereami`);
+    assert.equal(calls.length, 1, 'a failure is remembered for a minute, so a reload does not ask again');
+  } finally {
+    close();
+  }
+});
+
+test('the chain moves on when a service refuses, and says so when every one is rate-limited', async () => {
+  const calls = [];
+  const fetchImpl = async (u) => {
+    calls.push(u);
+    if (u.startsWith('https://one.example')) return { ok: false, status: 429 };
+    if (u.startsWith('https://two.example')) return { ok: true, json: async () => ({ error: true, reason: 'RateLimited' }) };
+    return { ok: true, json: async () => ({ latitude: 39.7, longitude: -104.9, cityName: 'Denver', countryName: 'United States' }) };
+  };
+  const chain = createWhereamiRoute({ url: 'https://one.example/{ip}, https://two.example/{ip}/json/, https://three.example/api/json/{ip}', fetchImpl });
+  assert.equal(chain.urls.length, 3);
+  const place = await chain.lookup('203.0.113.7');
+  assert.equal(place.place, 'Denver, United States');
+  assert.deepEqual(calls, ['https://one.example/203.0.113.7', 'https://two.example/203.0.113.7/json/', 'https://three.example/api/json/203.0.113.7']);
+
+  const limited = createWhereamiRoute({ url: 'https://one.example/{ip},https://two.example/{ip}', fetchImpl: async () => ({ ok: false, status: 429 }) });
+  const { base, close } = await serve({ whereami: limited });
+  try {
+    const body = await (await fetch(`${base}/api/whereami`)).json();
+    assert.equal(body.rateLimited, true);
+    assert.match(body.error, /rate-limited right now/);
   } finally {
     close();
   }

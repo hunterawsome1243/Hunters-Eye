@@ -1,19 +1,26 @@
 // "You are here": where the visitor is, from their IP address, so the globe can
-// plot them and the detail card can say how far an alert is from them.
+// plot them, the proximity feed can order by distance, and the detail card can say
+// how far an alert is from them.
 //
-// The browser asks this server (GET /api/whereami); the server looks the address
-// up at ipwho.is, a keyless service that answers over HTTPS with city accuracy
-// (tens of km at best, sometimes the wrong city), and caches the answer for an
-// hour per address. Nothing is looked up until the visitor presses the button
-// (public/js/ui/here.js), and no address is kept beyond the cache.
+// The browser asks this server (GET /api/whereami); the server asks a chain of
+// keyless geolocation services in turn (ipwho.is, then ipapi.co, then freeipapi.com)
+// until one answers with city accuracy (tens of km at best, sometimes the wrong
+// city), and caches the answer for an hour per address. A service that refuses
+// (ipwho.is answered HTTP 429 from Render's shared address on the first live day)
+// is skipped for the next one, and a failure of the whole chain is remembered for a
+// minute so reloads do not hammer them. No address is kept beyond the cache.
 //
-// WHEREAMI_URL overrides the service ({ip} is replaced by the address; an empty
-// value turns the route off). Behind Render's proxy the real address is in
-// X-Forwarded-For, which Express reads once `trust proxy` is set (server/app.js).
+// WHEREAMI_URL overrides the chain: one or more templates separated by commas,
+// {ip} replaced by the address (an empty value turns the route off). Behind
+// Render's proxy the real address is in X-Forwarded-For, which Express reads once
+// `trust proxy` is set (server/app.js).
 
-export const DEFAULT_URL = 'https://ipwho.is/{ip}';
+export const DEFAULT_URL = 'https://ipwho.is/{ip},https://ipapi.co/{ip}/json/,https://freeipapi.com/api/json/{ip}';
 const CACHE_TTL_MS = 60 * 60_000;
+const FAIL_TTL_MS = 60_000;
 const CACHE_MAX = 500;
+const PER_SERVICE_MS = 5000;
+const USER_AGENT = 'hunters-eye/0.1 (+https://github.com/hunterawsome1243/Hunters-Eye)';
 
 // Loopback and private ranges (a local run, a container): the service can't place
 // them, so ask it about the server's own public address instead.
@@ -26,32 +33,66 @@ export function isPrivate(ip) {
   return false;
 }
 
-// What ipwho.is returns, trimmed to what the globe needs. Other services can be
-// adapted here: anything with latitude/longitude (or lat/lon) and a city works.
+// A template with the address filled in. An empty address (the server's own) drops
+// its path segment, so "https://ipapi.co/{ip}/json/" becomes "https://ipapi.co/json/".
+export function fillUrl(template, ip) {
+  if (ip) return template.replace('{ip}', ip);
+  return template.replace('/{ip}/', '/').replace(/\/\{ip\}$/, '/').replace('{ip}', '');
+}
+
+export const hostOf = (url) => { try { return new URL(url).host; } catch { return url; } };
+
+// What the services return, trimmed to what the globe needs. ipwho.is: latitude,
+// longitude, city, region, country, success. ipapi.co: latitude, longitude, city,
+// region, country_name, error + reason. freeipapi.com: latitude, longitude, cityName,
+// regionName, countryName. ip-api.com style (lat, lon, regionName, status) also works.
 export function parseLookup(data) {
   if (!data || typeof data !== 'object') throw new Error('Empty lookup');
-  if (data.success === false) throw new Error(data.message || 'Lookup refused');
+  if (data.success === false || data.error === true || data.status === 'fail') throw new Error(data.message || data.reason || 'Lookup refused');
   const lat = Number(data.latitude ?? data.lat);
   const lon = Number(data.longitude ?? data.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Lookup had no coordinates');
-  const place = [data.city, data.region, data.country].filter((p) => typeof p === 'string' && p).join(', ');
+  const city = data.city ?? data.cityName;
+  const region = data.region ?? data.region_name ?? data.regionName;
+  const country = data.country ?? data.country_name ?? data.countryName;
+  const place = [city, region, country].filter((p) => typeof p === 'string' && p).join(', ');
   return { lat, lon, place, source: 'ip' };
 }
 
 export function createWhereamiRoute({ url = process.env.WHEREAMI_URL ?? DEFAULT_URL, fetchImpl = fetch, now = Date.now } = {}) {
-  const enabled = !!url;
-  const cache = new Map(); // ip -> { at, value }
+  const urls = String(url ?? '').split(',').map((u) => u.trim()).filter(Boolean);
+  const enabled = urls.length > 0;
+  const cache = new Map(); // ip -> { at, value } or { at, error }
+
+  async function askOne(template, key) {
+    const res = await fetchImpl(fillUrl(template, key), { signal: AbortSignal.timeout(PER_SERVICE_MS), headers: { accept: 'application/json', 'user-agent': USER_AGENT } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return parseLookup(await res.json());
+  }
 
   async function lookup(ip) {
     const key = isPrivate(ip) ? '' : ip;
     const hit = cache.get(key);
-    if (hit && now() - hit.at < CACHE_TTL_MS) return hit.value;
-    const res = await fetchImpl(url.replace('{ip}', key), { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const value = parseLookup(await res.json());
+    if (hit && now() - hit.at < (hit.error ? FAIL_TTL_MS : CACHE_TTL_MS)) {
+      if (hit.error) throw hit.error;
+      return hit.value;
+    }
+    const failures = [];
+    for (const template of urls) {
+      try {
+        const value = await askOne(template, key);
+        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+        cache.set(key, { at: now(), value });
+        return value;
+      } catch (err) {
+        failures.push(`${hostOf(template)}: ${err?.message ?? err}`);
+      }
+    }
+    const error = new Error(failures.join('; '));
+    error.rateLimited = failures.every((f) => /HTTP 429/.test(f));
     if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-    cache.set(key, { at: now(), value });
-    return value;
+    cache.set(key, { at: now(), error });
+    throw error;
   }
 
   async function handler(req, res) {
@@ -62,8 +103,9 @@ export function createWhereamiRoute({ url = process.env.WHEREAMI_URL ?? DEFAULT_
       res.json({ ...value, approximate: true });
     } catch (err) {
       console.warn('[whereami]', err?.message ?? err);
-      res.status(502).json({ error: `Could not place your address: ${err?.message ?? err}` });
+      const why = err?.rateLimited ? 'the address lookup services are rate-limited right now' : (err?.message ?? String(err));
+      res.status(502).json({ error: `Could not place your address: ${why}`, rateLimited: !!err?.rateLimited });
     }
   }
-  return { enabled, handler, lookup };
+  return { enabled, urls, handler, lookup };
 }
