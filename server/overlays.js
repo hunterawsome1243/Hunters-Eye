@@ -64,14 +64,18 @@ export function createOverlaysRoute({
   let lastError = null;
   let inflight = null;
 
+  // The batches go out together (seven requests for the default grid, well inside
+  // Open-Meteo's 600 a minute), so one slow answer costs one timeout, not seven in a
+  // row, and the first grid is on screen in seconds rather than a minute.
   async function fetchGrid() {
-    const fields = Object.fromEntries(FIELDS.map((f) => [f, []]));
-    for (let i = 0; i < points.length; i += BATCH) {
-      const batch = points.slice(i, i + BATCH);
+    const batches = [];
+    for (let i = 0; i < points.length; i += BATCH) batches.push(points.slice(i, i + BATCH));
+    const parsed = await Promise.all(batches.map((batch) => {
       const q = new URLSearchParams({ latitude: batch.map((p) => p[0]).join(','), longitude: batch.map((p) => p[1]).join(','), current: CURRENT, timeformat: 'unixtime' });
-      const parsed = parseBatch(await fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }), batch.length);
-      for (const p of parsed) for (const f of FIELDS) fields[f].push(p[f]);
-    }
+      return fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }).then((data) => parseBatch(data, batch.length));
+    }));
+    const fields = Object.fromEntries(FIELDS.map((f) => [f, []]));
+    for (const p of parsed.flat()) for (const f of FIELDS) fields[f].push(p[f]);
     return { at: now(), grid, fields, units: { temperature: '°C', wind: 'km/h', rain: 'mm', clouds: '%' }, refreshMs };
   }
 

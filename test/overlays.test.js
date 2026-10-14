@@ -88,9 +88,9 @@ test('a failed grid is a 502 the first time, kept stale after, and not retried f
     const res = await fetch(`${base}/api/overlays/weather`);
     assert.equal(res.status, 502);
     assert.match((await res.json()).error, /timed out/);
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 7, 'every batch goes out together');
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 502);
-    assert.equal(calls.length, 1, 'not retried within a minute');
+    assert.equal(calls.length, 7, 'not retried within a minute');
     fail = false;
     t += 61_000;
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 200);
