@@ -6,8 +6,10 @@
 // GRID_DEG grid between 80°S and 80°N (10° -> 612 points, in batches of 100
 // per request), so the default two-hour refresh spends ~7,300 of those a day,
 // and only while someone is looking: the grid is fetched on the first request
-// and refreshed on a request that finds it older than REFRESH_MIN. The browser
-// (public/js/ui/overlays.js) interpolates between the points and paints them.
+// and refreshed on a request that finds it older than REFRESH_MIN. Each process
+// start fetches it afresh (a host that sleeps an idle free service costs one grid
+// per wake), and an HTTP 429 is honoured for as long as its Retry-After says. The
+// browser (public/js/ui/overlays.js) interpolates between the points and paints them.
 //
 // OPEN_METEO_URL overrides the endpoint (empty turns the overlay off, and
 // /api/config says so); OVERLAY_GRID_DEG and OVERLAY_REFRESH_MIN tune the cost.
@@ -21,9 +23,16 @@ const FAIL_TTL_MS = 60_000;
 const TIMEOUT_MS = 15_000;
 const LAT_MAX = 80; // the ice caps round the grid off and would cost a third more points
 
-// The grid's points, south to north then west to east, row-major.
+// Grid spacings whose columns close exactly round the planet (360 divides by them).
+// Finer than 10° overspends the free allowance at the default refresh: the cost is
+// points × (1440 ÷ OVERLAY_REFRESH_MIN) location-requests a day, against 10,000.
+export const STEPS = [5, 6, 7.5, 9, 10, 12, 15, 18, 20, 30];
+
+// The grid's points, south to north then west to east, row-major. An unlisted
+// spacing snaps to the nearest listed one, so the last column always meets the first.
 export function gridSpec(stepDeg = 10) {
-  const step = Math.min(Math.max(Number(stepDeg) || 10, 2.5), 30);
+  const asked = Number(stepDeg) || 10;
+  const step = STEPS.reduce((best, s) => (Math.abs(s - asked) < Math.abs(best - asked) ? s : best));
   const lat0 = -Math.floor(LAT_MAX / step) * step;
   const rows = Math.floor((LAT_MAX - lat0) / step) + 1;
   const cols = Math.round(360 / step);
@@ -60,30 +69,35 @@ export function createOverlaysRoute({
   const refreshMs = Math.max(Number(refreshMin) || 120, 15) * 60_000;
   const points = gridPoints(grid);
   let data = null; // { at, grid, fields, next }
-  let failedAt = 0;
+  let retryAt = 0; // after a failure, no attempt before this
   let lastError = null;
   let inflight = null;
 
+  // The batches go out together (seven requests for the default grid, well inside
+  // Open-Meteo's 600 a minute), so one slow answer costs one timeout, not seven in a
+  // row, and the first grid is on screen in seconds rather than a minute.
   async function fetchGrid() {
-    const fields = Object.fromEntries(FIELDS.map((f) => [f, []]));
-    for (let i = 0; i < points.length; i += BATCH) {
-      const batch = points.slice(i, i + BATCH);
+    const batches = [];
+    for (let i = 0; i < points.length; i += BATCH) batches.push(points.slice(i, i + BATCH));
+    const parsed = await Promise.all(batches.map((batch) => {
       const q = new URLSearchParams({ latitude: batch.map((p) => p[0]).join(','), longitude: batch.map((p) => p[1]).join(','), current: CURRENT, timeformat: 'unixtime' });
-      const parsed = parseBatch(await fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }), batch.length);
-      for (const p of parsed) for (const f of FIELDS) fields[f].push(p[f]);
-    }
+      return fetchJson(`${url}?${q}`, { timeoutMs: TIMEOUT_MS }).then((data) => parseBatch(data, batch.length));
+    }));
+    const fields = Object.fromEntries(FIELDS.map((f) => [f, []]));
+    for (const p of parsed.flat()) for (const f of FIELDS) fields[f].push(p[f]);
     return { at: now(), grid, fields, units: { temperature: '°C', wind: 'km/h', rain: 'mm', clouds: '%' }, refreshMs };
   }
 
   // The grid, refreshed when stale. A refresh that fails keeps the last grid (marked
-  // stale in the answer) and is not tried again for a minute.
+  // stale in the answer) and is not tried again for a minute, or for as long as a
+  // Retry-After header asks: a rate-limited Open-Meteo is left alone, not hammered.
   async function current() {
     const t = now();
     const fresh = data && t - data.at < refreshMs;
     if (fresh) return data;
-    if (!inflight && t - failedAt >= FAIL_TTL_MS) {
+    if (!inflight && t >= retryAt) {
       inflight = fetchGrid().then((d) => { data = d; lastError = null; return d; }).catch((err) => {
-        failedAt = now();
+        retryAt = now() + Math.max(FAIL_TTL_MS, err.retryAfterMs || 0);
         lastError = err;
         throw err;
       }).finally(() => { inflight = null; });
