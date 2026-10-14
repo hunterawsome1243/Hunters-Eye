@@ -3,8 +3,9 @@ import { el } from './format.js';
 
 // "You are here": a button by the zoom controls that asks the server where the
 // visitor is (GET /api/whereami, from their address, city accuracy), drops a marker
-// there, and flies to it. When the server can't place the address, a button press
-// falls back to the browser's own location (which asks the visitor first). The detail card then says how far the clicked thing is.
+// there, and flies to it. A deliberate press asks the browser's own location first
+// (exact, with the visitor's permission) and uses the address as the fallback; the
+// automatic placement at load (the proximity feed) uses the address only. The detail card then says how far the clicked thing is.
 // The place is remembered in localStorage so the marker is back on the next visit
 // without another lookup; pressing the button again removes it and forgets.
 // The proximity feed (ui/feed.js) measures from the same place and asks for one at
@@ -54,7 +55,10 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
         el('span', { class: 'you-label' }, p.place ? `You · ${p.place.split(',')[0]}` : 'You'));
       marker = new maplibregl.Marker({ element, opacityWhenCovered: '0.15' }).setLngLat([p.lon, p.lat]).addTo(map);
     }
-    button?.setAttribute('aria-pressed', String(!!p));
+    if (button) {
+      button.setAttribute('aria-pressed', String(!!p));
+      button.title = p ? TITLE_SET : TITLE;
+    }
     onChange(p);
   }
 
@@ -81,22 +85,27 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   }
 
   // Resolves to the place, or null when every way failed (error() says why).
-  // browser: fall back to the browser's own location when the server can't place
-  // the address (a button press only, since the browser asks the visitor).
+  // browser: a deliberate press. The browser's own location comes first (exact,
+  // but it asks the visitor), and the address is the fallback; so a wrong city from
+  // the address can always be corrected by pressing the button. Without the flag
+  // (the automatic placement at load) only the address is used: nothing prompts.
   async function locate({ fly = true, browser = false } = {}) {
     if (busy) return null;
     busy = true;
     button?.setAttribute('aria-busy', 'true');
     try {
       let p;
-      try {
+      if (!browser) {
         p = await fromServer();
-      } catch (err) {
-        if (!browser) throw err;
+      } else {
         try {
           p = await fromBrowser();
-        } catch (err2) {
-          throw new Error(`${err.message}; ${err2.message}`);
+        } catch (err) {
+          try {
+            p = await fromServer();
+          } catch (err2) {
+            throw new Error(`${err2.message}; ${err.message}`);
+          }
         }
       }
       error = '';
@@ -109,7 +118,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
       console.warn('Where am I:', err.message);
       if (button) {
         button.title = `Could not place you: ${err.message}`;
-        setTimeout(() => { button.title = TITLE; }, 6000);
+        setTimeout(() => { button.title = position ? TITLE_SET : TITLE; }, 6000);
       }
       return null;
     } finally {
@@ -127,12 +136,13 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     }
   }
 
-  const TITLE = 'Show where you are (from your network address)';
+  const TITLE = 'Place yourself on the globe (your browser asks first; your network address is the fallback)';
+  const TITLE_SET = 'Remove the marker and forget where you are';
   // The map control: one button next to the zoom group, pressed while the marker shows.
   const control = {
     onAdd() {
       this.el = el('div', { class: 'maplibregl-ctrl maplibregl-ctrl-group he-ctrl-here-group' });
-      button = el('button', { type: 'button', class: 'he-ctrl-here', title: TITLE, 'aria-label': 'Show where you are', 'aria-pressed': String(!!position) });
+      button = el('button', { type: 'button', class: 'he-ctrl-here', title: position ? TITLE_SET : TITLE, 'aria-label': 'Show where you are', 'aria-pressed': String(!!position) });
       button.innerHTML = ICON;
       button.addEventListener('click', toggle);
       this.el.append(button);
