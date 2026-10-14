@@ -110,6 +110,14 @@ The crosshair button next to the zoom controls asks the server the same question
 - Behind a proxy the visitor's address is in `X-Forwarded-For`: on Render this is on by itself (`RENDER` is set); elsewhere set `TRUST_PROXY=1` (or a hop count).
 - Without a key the route answers 404 and the section stays hidden.
 
+### Overlays
+
+The **Overlays** button at the top left of the globe opens a menu of washes drawn over the planet, under the data: one weather field at a time (**Temperature**, **Wind**, **Rain** or **Clouds**), plus **Night side** and **Fires**. The choice is remembered in your browser; a legend sits under the button while a weather field is on, in °F, mph and inches when your browser is set to US English, otherwise °C, km/h and mm.
+
+- **Weather** comes from [Open-Meteo](https://open-meteo.com/) (`server/overlays.js`): current conditions at every point of a 10° grid between 80°S and 80°N (612 points, in requests of 100), refreshed every two hours and only while someone is looking. The browser interpolates between the points and paints the field into an image stretched over the globe (`public/js/overlays/field.js`), so it reads as a smooth map of the planet's weather rather than a forecast of your street: the grid is coarse by design, because the free tier allows about 10,000 location-requests a day and this schedule uses 7,300. `OPEN_METEO_URL=` (empty) turns the weather choices off; `OVERLAY_GRID_DEG` and `OVERLAY_REFRESH_MIN` trade detail for cost.
+- **Night side** is computed in the browser from where the Sun is (declination and the equation of time, good to about 0.1°) and redrawn every minute. It needs no server.
+- **Fires** are NASA's VIIRS thermal anomalies (`VIIRS_SNPP_Thermal_Anomalies_375m_All`) for the last full UTC day, as [GIBS](https://nasa-gibs.github.io/gibs-api-docs/) tiles loaded straight by the browser. If the tiles do not arrive the menu says so.
+
 ## Data sources and limits
 
 All four are free and need no paid plan. Limits below were checked against each provider's documentation in October 2026.
@@ -122,6 +130,8 @@ All four are free and need no paid plan. Limits below were checked against each 
 | [National Weather Service](https://www.weather.gov/documentation/services-web-api) | `/alerts/active?status=actual`, plus `/zones/{type}/{id}` | Requires a `User-Agent`. Limits are not published but described as generous; errors clear within about 5 seconds. | Alerts every 2 minutes. Zone- and county-based alerts arrive without a shape, so their outlines come from the zones endpoint, as the [NWS geolocation guide](https://www.weather.gov/media/documentation/docs/NWS_Geolocation.pdf) recommends. Each zone is downloaded once, simplified and cached on disk; at most 300 per cycle, 4 at a time, most severe alerts first. |
 | [OpenFreeMap](https://openfreemap.org/) | `tiles.openfreemap.org/styles/dark` (vector tiles, fonts and sprites from OpenStreetMap data, down to zoom 14 tiles overzoomed to 19) | Free, including commercial use. No API key, no sign-up, no stated request limits; runs on donations. | Loaded directly by the browser and drawn natively by MapLibre GL JS on the globe. Credit line shown on the map. `BASEMAP_STYLE=https://tiles.openfreemap.org/styles/liberty` gives a light map with its own 3D buildings. |
 | [EOX Sentinel-2 cloudless](https://s2maps.eu/) | `tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/…` (the 2016 mosaic: 10 m satellite imagery, Web Mercator tiles) | Free, no key. The 2016 and 2017 mosaics are CC BY 4.0; 2018 and later are CC BY-NC-SA 4.0. EOX asks for attribution (shown automatically) and may rate-limit heavy use. | Drawn under the vector map from space down to zoom 12, then faded out, so no imagery tile is ever requested above zoom 12. The 2016 layer is the default because it is the global CC BY mosaic. The 2017 layer is CC BY too but only has imagery over Europe, the Middle East and North Africa; elsewhere it returns white land, which is what the first deploy showed. Set `IMAGERY_TILES` to 2018 or later (global) if non-commercial use is fine for you. |
+| [Open-Meteo](https://open-meteo.com/en/docs) | `api.open-meteo.com/v1/forecast?latitude=…&longitude=…&current=temperature_2m,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover` | Free for non-commercial use without a key: fewer than 10,000 API calls a day, 5,000 an hour, 600 a minute. A request for several locations counts once per location. | The weather overlays ask for a 10° grid (612 locations) at most once every two hours, and only while a browser has asked for it: about 7,300 calls a day at most. The grid is cached in memory; a failed refresh keeps the last grid and is not retried for a minute. See [Overlays](#overlays). |
+| [NASA GIBS fires](https://nasa-gibs.github.io/gibs-api-docs/) | `gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_Thermal_Anomalies_375m_All/default/{date}/…` (zoom 1-8) | Public domain, no key, no stated limits. | Loaded by the browser only while the Fires overlay is on, for yesterday's date (UTC), so the day is complete. |
 | [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/) | `gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/…` (zoom 1-7, 611 m/px) | Public domain, no key, no stated limits. | Drawn under the Sentinel-2 layer everywhere, so the whole planet has colour even where EOX tiles are slow. Also the automatic fallback: after 8 failed imagery tiles in a minute the browser switches to Blue Marble and notes it in the feed. The `night` preset in `public/js/globe/style.js` (VIIRS city lights) is one line away. |
 
 **Sources that were swapped or ruled out.**
@@ -149,6 +159,8 @@ Everything is optional. Copy `.env.example` to `.env` and fill in what you need;
 | `BROWSER_FALLBACK` | on | `off` stops browsers from fetching OpenSky and CelesTrak themselves when the server can't reach them. See [Browser fallback](#browser-fallback). |
 | `WHEREAMI_URL` | ipwho.is, ipapi.co, freeipapi.com | The address lookups behind the **You are here** button and the **Proximity feed**: one or more URL templates separated by commas, tried in order, `{ip}` replaced by the address. Empty turns both off. See [You are here](#you-are-here). |
 | `TRUST_PROXY` | `1` on Render, else empty | Read the visitor's address from `X-Forwarded-For` behind a proxy. |
+| `OPEN_METEO_URL` | `https://api.open-meteo.com/v1/forecast` | The current-conditions API behind the weather **Overlays**. Empty turns the weather choices off (night side and fires stay). See [Overlays](#overlays). |
+| `OVERLAY_GRID_DEG`, `OVERLAY_REFRESH_MIN` | `10`, `120` | The weather grid's spacing in degrees (2.5 to 30) and how often it is refreshed. A finer grid costs more of Open-Meteo's daily allowance: points × (1440 ÷ minutes) a day. |
 | `ANTHROPIC_API_KEY` | empty | Turns on the **Brief me** and **Describe** buttons. See [Situation brief](#situation-brief-optional). `BRIEF_MODEL` picks the model (default `claude-haiku-5-5`). |
 
 Page options: add `?spin=off` to the URL to load with the globe still; the spin button remembers your choice in the browser.
@@ -191,10 +203,11 @@ The `--fake` stand-ins (`scripts/fake-upstream.mjs`) mirror each API's documente
 ```
 server/
   index.js            starts the server
-  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief, POST /api/describe, GET /api/whereami
+  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief, POST /api/describe, GET /api/whereami, GET /api/overlays/weather
   brief.js            the Claude-written situation brief: snapshot sanitising, throttle, pricing, the shared route factory
   describe.js         the Claude-written description of one clicked object, and its follow-ups
   whereami.js         the visitor's place from their address (ipwho.is), cached
+  overlays.js         the Open-Meteo current-conditions grid behind the weather overlays, cached
   lib/poller.js       runs one source on its schedule, caches the result, pauses when idle
   lib/http.js         fetch with User-Agent, timeout, readable errors and retry-after
   lib/geometry.js     polygon simplification for weather outlines
@@ -208,7 +221,8 @@ public/
   js/globe/           style.js (projection, sky, imagery, buildings), geo.js (antimeridian-safe geometry), spin.js, icons.js
   js/fallback.js      fetches OpenSky and CelesTrak from the browser when the server can't
   js/layers/          one module per globe layer, matching the server sources
-  js/ui/              summary bar, live feed, detail panel, brief, you-are-here marker, watchlist, formatting helpers
+  js/overlays/        field.js: colour ramps, grid sampling, the Mercator heat-map image, the Sun and the night side (no DOM)
+  js/ui/              summary bar, live feed, detail panel, brief, you-are-here marker, overlays menu, watchlist, formatting helpers
 scripts/              smoke test, the fake upstream APIs, the land-file builder
 examples/             a complete extra layer (NASA EONET natural events) to copy from
 test/                 unit tests (node:test)

@@ -40,6 +40,7 @@ if (fake) {
     NWS_URL: `${base}/nws`,
     NWS_ZONE_BASE: base,
     WHEREAMI_URL: `${base}/whereami/{ip}`,
+    OPEN_METEO_URL: `${base}/open-meteo`,
     CACHE_DIR: '',
     AIRCRAFT_INTERVAL_SEC: '3',
   });
@@ -294,6 +295,42 @@ try {
     await page.waitForSelector('.you', { timeout: 10_000 });
     check('Proximity feed: Find me places the marker again', (await page.locator('.you').count()) === 1);
     await page.locator('#feed-tab-live').click();
+  }
+
+  // Overlays: the button at the top left opens a menu; a weather field paints an
+  // image under the data with a legend under the button; night side and fires
+  // add their own layers; the choice survives a reload.
+  {
+    await page.locator('.he-ctrl-overlays').click();
+    check('Overlays: the button opens the menu', await page.locator('#overlays-popover').isVisible());
+    await page.locator('#overlays-popover input[value="temperature"]').check();
+    const heat = await page.waitForFunction(() => {
+      const m = window.__huntersEye.map;
+      return !!m.getLayer('he-overlay-weather') && m.getLayoutProperty('he-overlay-weather', 'visibility') !== 'none' && !document.querySelector('.overlay-legend').hidden;
+    }, null, { timeout: 10_000 }).then(() => true).catch(() => false);
+    check('Overlays: temperature paints a heat map with a legend', heat);
+    const legend = await page.locator('.overlay-legend').textContent();
+    check('Overlays: the legend names the field and its unit', /Temperature · °[CF]/.test(legend), legend);
+    const below = await evalMap(() => {
+      const ids = window.__huntersEye.map.getStyle().layers.map((l) => l.id);
+      return ids.indexOf('he-overlay-weather') < ids.indexOf('he-weather-fill') && ids.indexOf('he-overlay-weather') < ids.indexOf('he-earthquakes');
+    });
+    check('Overlays: the heat map sits under the data layers', below);
+    await page.locator('#overlays-popover input[type="checkbox"]').first().check(); // Night side
+    const night = await page.waitForFunction(() => window.__huntersEye.map.getSource('he-overlay-night')?.serialize().data?.geometry?.coordinates?.[0]?.length > 100, null, { timeout: 5_000 }).then(() => true).catch(() => false);
+    check('Overlays: the night side is a polygon round the antisolar point', night);
+    await page.keyboard.press('Escape');
+    check('Overlays: Escape closes the menu', !(await page.locator('#overlays-popover').isVisible()));
+    await page.reload();
+    await ready();
+    const kept = await page.waitForFunction(() => {
+      const m = window.__huntersEye.map;
+      return !!m.getLayer('he-overlay-weather') && !!m.getLayer('he-overlay-night') && !document.querySelector('.overlay-legend').hidden;
+    }, null, { timeout: 15_000 }).then(() => true).catch(() => false);
+    check('Overlays: the choice survives a reload', kept);
+    await evalMap(() => window.__huntersEye.overlays.set({ weather: null, night: false, fires: false }));
+    await page.waitForTimeout(200);
+    check('Overlays: None clears the legend', await page.locator('.overlay-legend').isHidden());
   }
 
   if (!fake) {
