@@ -3,7 +3,8 @@ import { el } from './format.js';
 
 // "You are here": a button by the zoom controls that asks the server where the
 // visitor is (GET /api/whereami, from their address, city accuracy), drops a marker
-// there, and flies to it. The detail card then says how far the clicked thing is.
+// there, and flies to it. When the server can't place the address, a button press
+// falls back to the browser's own location (which asks the visitor first). The detail card then says how far the clicked thing is.
 // The place is remembered in localStorage so the marker is back on the next visit
 // without another lookup; pressing the button again removes it and forgets.
 // The proximity feed (ui/feed.js) measures from the same place and asks for one at
@@ -48,7 +49,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     marker?.remove();
     marker = null;
     if (p && map) {
-      const element = el('div', { class: 'you', title: p.place ? `You (about): ${p.place}` : 'You (about)' },
+      const element = el('div', { class: 'you', title: p.place ? `You (about): ${p.place}` : p.source === 'browser' ? 'You (from your browser)' : 'You (about)' },
         el('i', { class: 'you-ring' }), el('i', { class: 'you-dot' }),
         el('span', { class: 'you-label' }, p.place ? `You · ${p.place.split(',')[0]}` : 'You'));
       marker = new maplibregl.Marker({ element, opacityWhenCovered: '0.15' }).setLngLat([p.lon, p.lat]).addTo(map);
@@ -57,16 +58,47 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     onChange(p);
   }
 
-  // Resolves to the place, or null when the lookup failed (error() says why).
-  async function locate({ fly = true } = {}) {
+  // The server's answer, from the visitor's address.
+  async function fromServer() {
+    const res = await fetchImpl('/api/whereami');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return { lat: data.lat, lon: data.lon, place: data.place || '', at: Date.now(), source: 'ip' };
+  }
+
+  // The browser's own location, which asks the visitor's permission, so only after
+  // they pressed a button. Exact, but it has no city name to show.
+  function fromBrowser() {
+    return new Promise((resolve, reject) => {
+      const geo = navigator.geolocation;
+      if (!geo) return reject(new Error('this browser has no location'));
+      geo.getCurrentPosition(
+        ({ coords }) => resolve({ lat: coords.latitude, lon: coords.longitude, place: '', at: Date.now(), source: 'browser' }),
+        (err) => reject(new Error(err.code === 1 ? 'you did not allow the browser to share your location' : err.message || 'browser location failed')),
+        { timeout: 12_000, maximumAge: 10 * 60_000 },
+      );
+    });
+  }
+
+  // Resolves to the place, or null when every way failed (error() says why).
+  // browser: fall back to the browser's own location when the server can't place
+  // the address (a button press only, since the browser asks the visitor).
+  async function locate({ fly = true, browser = false } = {}) {
     if (busy) return null;
     busy = true;
     button?.setAttribute('aria-busy', 'true');
     try {
-      const res = await fetchImpl('/api/whereami');
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const p = { lat: data.lat, lon: data.lon, place: data.place || '', at: Date.now() };
+      let p;
+      try {
+        p = await fromServer();
+      } catch (err) {
+        if (!browser) throw err;
+        try {
+          p = await fromBrowser();
+        } catch (err2) {
+          throw new Error(`${err.message}; ${err2.message}`);
+        }
+      }
       error = '';
       remember(p);
       place(p);
@@ -91,7 +123,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
       remember(null);
       place(null);
     } else {
-      locate();
+      locate({ browser: true });
     }
   }
 
