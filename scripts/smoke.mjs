@@ -328,6 +328,19 @@ try {
     check('Overlays: arrow keys change the field without losing focus', keys.field === 'wind' && keys.inside && keys.on === 'wind', JSON.stringify(keys));
     await page.keyboard.press('Escape');
     check('Overlays: Escape closes the menu', !(await page.locator('#overlays-popover').isVisible()));
+    // A tap on the bare planet reads the grid there: a number in the reader's unit,
+    // the other fields under it; Escape closes it.
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [-120, -30], zoom: 2.5 }));
+    await idle();
+    const tap = await evalMap(() => { const p = window.__huntersEye.map.project([-120, -30]); return { x: p.x, y: p.y }; });
+    const mapBox = await page.locator('#map').boundingBox();
+    await page.mouse.click(mapBox.x + tap.x, mapBox.y + tap.y);
+    const probeValue = await page.locator('.probe-popup .probe-value').textContent({ timeout: 3_000 }).catch(() => '');
+    const probeOthers = await page.locator('.probe-popup .probe-others').textContent().catch(() => '');
+    check('Overlays: a tap on the planet reads out the field there', /^-?\d+ (°[CF]|km\/h|mph)( from [NESW]{1,3})?$/.test(probeValue.trim()) && /(Temperature -?\d+ °[CF]|Wind \d+ (km\/h|mph))/.test(probeOthers), `${probeValue} | ${probeOthers}`);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+    check('Overlays: Escape closes the readout', (await page.locator('.probe-popup').count()) === 0);
     await page.reload();
     await ready();
     const kept = await page.waitForFunction(() => {

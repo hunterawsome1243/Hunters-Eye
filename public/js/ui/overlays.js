@@ -1,5 +1,6 @@
-import { el, timeAgo } from './format.js';
-import { IMAGE_CORNERS, RAMPS, convert, localUnits, nightPolygon, paintField, rampCss, unitLabel } from '../overlays/field.js';
+import * as maplibregl from 'maplibre-gl';
+import { el, latLon, timeAgo } from './format.js';
+import { IMAGE_CORNERS, RAMPS, compass, convert, formatValue, localUnits, nightPolygon, paintField, probe, rampCss, unitLabel } from '../overlays/field.js';
 
 // Overlays: an "Overlays" button at the top left of the globe that opens a menu of
 // washes drawn over the planet, under the data. One weather field at a time
@@ -7,7 +8,9 @@ import { IMAGE_CORNERS, RAMPS, convert, localUnits, nightPolygon, paintField, ra
 // painted into a Mercator image), plus the night side (computed here, where the Sun
 // is right now) and fires (NASA's VIIRS thermal anomalies of the last day, as tiles).
 // The choice is remembered in localStorage. A legend sits under the button while a
-// weather field is on, so the colours can be read without opening the menu.
+// weather field is on, so the colours can be read without opening the menu, and a
+// tap on the bare planet opens a readout of the grid at that spot: the field's
+// number first, the other fields under it, a Copy button for the line.
 const KEY = 'he.overlays';
 const WEATHER_SRC = 'he-overlay-weather';
 const NIGHT_SRC = 'he-overlay-night';
@@ -210,7 +213,64 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     scheduleWeather();
     renderMenu();
     renderLegend();
+    renderProbe();
   }
+
+  // --- the readout: a tap on the planet reads the grid at that spot ------------
+  let probeAt = null; // { lat, lon } while a readout is open
+  let popup = null;
+  let probeDot = null;
+  function hideProbe() {
+    const p = popup;
+    popup = null;
+    probeAt = null;
+    probeDot?.remove();
+    probeDot = null;
+    p?.remove(); // its 'close' event comes back here and finds nothing left to do
+  }
+  function showProbe(lat, lon) {
+    if (!state.weather || !map) return;
+    probeAt = { lat, lon };
+    if (!popup) {
+      popup = new maplibregl.Popup({ className: 'probe-popup', closeButton: true, closeOnClick: false, closeOnMove: false, maxWidth: '280px', offset: 12 });
+      popup.on('close', hideProbe);
+      probeDot = new maplibregl.Marker({ element: el('div', { class: 'probe-dot' }), opacityWhenCovered: '0.15' });
+    }
+    probeDot.setLngLat([lon, lat]).addTo(map);
+    popup.setLngLat([lon, lat]).setDOMContent(probeContent()).addTo(map);
+  }
+  function renderProbe() {
+    if (!probeAt) return;
+    if (!state.weather) return hideProbe();
+    popup?.setDOMContent(probeContent());
+  }
+  function probeContent() {
+    const { lat, lon } = probeAt;
+    const field = state.weather;
+    const name = WEATHER.find((w) => w[0] === field)[1];
+    const r = grid ? probe(grid, lat, lon) : null;
+    const value = (id) => { const v = r?.[id]; return v == null ? null : `${formatValue(id, v, units)} ${unitLabel(id, units)}`; };
+    const from = r?.windDir == null ? '' : ` from ${compass(r.windDir)}`;
+    const big = value(field) == null ? '—' : value(field) + (field === 'wind' ? from : '');
+    const others = WEATHER.filter((w) => w[0] !== field).map(([id, n]) => (value(id) == null ? null : `${n} ${value(id)}${id === 'wind' ? from : ''}`)).filter(Boolean).join(' · ');
+    const note = !grid ? 'Loading the weather grid…' : !r ? 'No reading here yet: this band of the grid is still on its way.' : `From the ${grid.grid.step}° grid, ${timeAgo(grid.updated ?? grid.at)}.`;
+    const line = `${name} ${big} at ${latLon(lat, lon)}${others ? ` · ${others}` : ''}`;
+    const copy = el('button', { type: 'button', class: 'probe-copy', title: 'Copy this reading' }, 'Copy');
+    copy.addEventListener('click', () => {
+      navigator.clipboard?.writeText(line).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1500); }).catch(() => {});
+    });
+    return el('div', { class: 'probe', role: 'status' },
+      el('div', { class: 'probe-value' }, big),
+      el('div', { class: 'probe-sub' }, `${name} · ${latLon(lat, lon)}`),
+      others ? el('div', { class: 'probe-others' }, others) : null,
+      el('div', { class: 'probe-note' }, el('span', {}, note), r ? copy : null),
+    );
+  }
+  globe?.onMiss?.((e) => {
+    if (!state.weather) return;
+    const { lat, lng } = e.lngLat.wrap();
+    showProbe(lat, lng);
+  });
 
   // --- the menu --------------------------------------------------------------
   function gridNote() {
@@ -309,9 +369,13 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
       if (open && !popover.contains(e.target) && !button?.contains(e.target)) closeMenu();
     }, true);
     document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' || !open) return;
-      e.stopPropagation();
-      closeMenu();
+      if (e.key !== 'Escape') return;
+      if (open) {
+        e.stopPropagation();
+        closeMenu();
+      } else if (probeAt) {
+        hideProbe();
+      }
     }, true);
     document.addEventListener('focusin', (e) => {
       if (open && !popover.contains(e.target) && e.target !== button) closeMenu();
@@ -346,6 +410,8 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     control,
     state: () => ({ ...state }),
     set,
+    probe: showProbe,
+    probeAt: () => probeAt,
     units: () => units,
     // Once /api/config is in: without a grid the weather choices are greyed out and a
     // remembered field is let go; the night side and fires need nothing from the server.
