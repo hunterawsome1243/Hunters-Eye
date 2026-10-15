@@ -187,7 +187,9 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
       .sort((a, b) => b.p - a.p || a.d - b.d);
     for (const { f } of ranked) if (ownerOf(f.layer.id)?.pick(f, e)) return;
     detail?.hide();
-    if (map.transform?.isPointOnMapSurface?.(e.point) ?? true) for (const fn of missCallbacks) fn(e);
+    // A ray that misses the sphere comes back as the nearest point of the horizon,
+    // which projects to another pixel: that tap was on space, not the planet.
+    if (map.project(e.lngLat).dist(e.point) < 2) for (const fn of missCallbacks) fn(e);
   });
 
   if (matchMedia('(hover: hover)').matches) {

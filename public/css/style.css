@@ -481,20 +481,26 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 
 /* The readout: a tap on the bare planet while a weather field is on. */
 .probe-popup { z-index: 5; }
-.probe-popup .maplibregl-popup-content { background: var(--glass-card); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 8px 30px 8px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); font: inherit; }
+.probe-popup .maplibregl-popup-content { background: var(--glass-card); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 8px 36px 8px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); font: inherit; }
 .probe-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--border-strong); }
 .probe-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--border-strong); }
 .probe-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--border-strong); }
 .probe-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--border-strong); }
-.probe-popup .maplibregl-popup-close-button { color: var(--muted); font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: var(--radius-md); }
+.probe-popup .maplibregl-popup-close-button { color: var(--muted); font-size: 18px; line-height: 1; width: 36px; height: 36px; padding: 0; border-radius: var(--radius-md); }
 .probe-popup .maplibregl-popup-close-button:hover { background: transparent; color: var(--text); }
 .probe { display: grid; gap: 2px; min-width: 160px; }
 .probe-value { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .probe-sub, .probe-others { color: var(--text-2); font-size: var(--text-xs); }
 .probe-others { margin-top: 2px; }
-.probe-note { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 4px; color: var(--muted); font-size: var(--text-xs); }
-.probe-copy { flex: none; background: none; border: 1px solid var(--border-strong); color: var(--text-2); border-radius: 999px; padding: 1px 9px; font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.probe-note { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; color: var(--muted); font-size: var(--text-xs); }
+.probe-copy { flex: none; background: none; border: 1px solid var(--border-strong); color: var(--text-2); border-radius: 999px; min-height: 28px; padding: 2px 12px; font: inherit; font-size: var(--text-xs); cursor: pointer; }
 .probe-copy:hover { border-color: var(--border-hover); color: var(--text); }
+/* Fingers: the close and Copy buttons are the readout's only two targets on a phone. */
+@media (pointer: coarse) {
+  .probe-popup .maplibregl-popup-content { padding-right: 42px; }
+  .probe-popup .maplibregl-popup-close-button { width: 44px; height: 44px; }
+  .probe-copy { min-height: 36px; padding: 4px 16px; }
+}
 .probe-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--text); background: transparent; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
 .overlay-legend[hidden] { display: none; }
 .overlay-legend-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

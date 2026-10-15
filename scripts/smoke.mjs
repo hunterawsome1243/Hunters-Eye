@@ -341,6 +341,60 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(100);
     check('Overlays: Escape closes the readout', (await page.locator('.probe-popup').count()) === 0);
+    // A second tap moves the one readout (re-adding an open MapLibre popup fires
+    // its 'close' event), and leaves the keyboard on the globe.
+    const spot = async (lon, lat) => evalMap(([lon, lat]) => {
+      const m = window.__huntersEye.map;
+      const p = m.project([lon, lat]);
+      const busy = [...new Set(m.queryRenderedFeatures([[p.x - 16, p.y - 16], [p.x + 16, p.y + 16]]).map((f) => f.layer.id))].filter((id) => !id.startsWith('he-overlay'));
+      return { x: p.x, y: p.y, busy };
+    }, [lon, lat]);
+    const probeState = () => page.evaluate(() => ({
+      popups: document.querySelectorAll('.probe-popup').length,
+      dots: document.querySelectorAll('.probe-dot').length,
+      at: window.__huntersEye.overlays.probeAt(),
+      inPopup: !!document.querySelector('.probe-popup')?.contains(document.activeElement),
+      detail: !document.getElementById('detail').hidden,
+    }));
+    await page.mouse.click(mapBox.x + tap.x, mapBox.y + tap.y);
+    await page.waitForTimeout(200);
+    const candidates = [];
+    for (const [lon, lat] of [[-140, -40], [-100, -40], [-140, -20], [-100, -20]]) candidates.push({ lon, lat, ...(await spot(lon, lat)) });
+    const second = candidates.find((c) => !c.busy.length) ?? candidates[0]; // a bare spot, away from the first popup
+    await page.mouse.click(mapBox.x + second.x, mapBox.y + second.y);
+    await page.waitForTimeout(200);
+    const moved = await probeState();
+    check('Overlays: a second tap moves the readout', moved.popups === 1 && moved.dots === 1 && Math.abs(moved.at?.lat - second.lat) < 0.5 && Math.abs(moved.at?.lon - second.lon) < 0.5 && !moved.inPopup, JSON.stringify({ second, moved }));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+    const closed = await probeState();
+    check('Overlays: Escape closes the moved readout', closed.popups === 0 && closed.dots === 0 && closed.at === null, JSON.stringify(closed));
+    // A tap on space, where the ray misses the sphere, opens nothing.
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [-120, -30], zoom: 1 }));
+    await idle();
+    const space = await evalMap(() => {
+      const m = window.__huntersEye.map;
+      const c = m.getCanvas();
+      const p = { x: c.clientWidth - 12, y: Math.round(c.clientHeight / 2) };
+      const back = m.project(m.unproject([p.x, p.y]));
+      const r = c.getBoundingClientRect();
+      return { ...p, off: Math.round(Math.hypot(back.x - p.x, back.y - p.y)), under: document.elementFromPoint(r.left + p.x, r.top + p.y)?.tagName };
+    });
+    await page.mouse.click(mapBox.x + space.x, mapBox.y + space.y);
+    await page.waitForTimeout(300);
+    check('Overlays: a tap on space opens no readout', space.off > 20 && space.under === 'CANVAS' && (await page.locator('.probe-popup').count()) === 0, JSON.stringify(space));
+    // Opening an item hands over to the detail card.
+    await evalMap(() => window.__huntersEye.map.jumpTo({ center: [-120, -30], zoom: 2.5 }));
+    await idle();
+    await page.mouse.click(mapBox.x + tap.x, mapBox.y + tap.y);
+    await page.waitForTimeout(200);
+    const before = await probeState();
+    await evalMap(() => window.__huntersEye.selectFirst('aircraft'));
+    await idle();
+    const handed = await probeState();
+    check('Overlays: opening an item closes the readout', before.popups === 1 && handed.popups === 0 && handed.at === null && handed.detail, JSON.stringify({ before, handed }));
+    await page.keyboard.press('Escape');
+    await idle();
     await page.reload();
     await ready();
     const kept = await page.waitForFunction(() => {

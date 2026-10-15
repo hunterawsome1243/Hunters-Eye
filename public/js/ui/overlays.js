@@ -109,6 +109,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
         loading = null;
         renderMenu();
         renderLegend();
+        renderProbe(); // an open readout follows the grid: a wave arriving, a refresh, a failure
       }
     })();
     return loading;
@@ -220,29 +221,53 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   let probeAt = null; // { lat, lon } while a readout is open
   let popup = null;
   let probeDot = null;
+  let probeTick = null; // keeps the "ago" line honest while a readout stays open
   function hideProbe() {
     const p = popup;
     popup = null;
     probeAt = null;
+    clearInterval(probeTick);
+    probeTick = null;
     probeDot?.remove();
     probeDot = null;
+    // Focus that was on the Copy button goes back to the globe, not to the page.
+    const hadFocus = !!p?.getElement()?.contains(document.activeElement);
     p?.remove(); // its 'close' event comes back here and finds nothing left to do
+    if (hadFocus) map?.getCanvas().focus({ preventScroll: true });
+    globe?.blockSpin?.('probe', false);
   }
   function showProbe(lat, lon) {
     if (!state.weather || !map) return;
     probeAt = { lat, lon };
     if (!popup) {
-      popup = new maplibregl.Popup({ className: 'probe-popup', closeButton: true, closeOnClick: false, closeOnMove: false, maxWidth: '280px', offset: 12 });
+      // focusAfterOpen is off so a tap keeps the keyboard on the globe and a field
+      // change does not pull focus out of the menu; the popup fades with its dot
+      // when the spot turns behind the planet.
+      popup = new maplibregl.Popup({ className: 'probe-popup', closeButton: true, closeOnClick: false, closeOnMove: false, focusAfterOpen: false, locationOccludedOpacity: 0.15, maxWidth: '280px', offset: 12 });
       popup.on('close', hideProbe);
       probeDot = new maplibregl.Marker({ element: el('div', { class: 'probe-dot' }), opacityWhenCovered: '0.15' });
+      probeTick = setInterval(renderProbeNote, 30_000);
+      globe?.blockSpin?.('probe', true); // like the detail card: the spin would carry the spot away
     }
     probeDot.setLngLat([lon, lat]).addTo(map);
-    popup.setLngLat([lon, lat]).setDOMContent(probeContent()).addTo(map);
+    popup.setLngLat([lon, lat]).setDOMContent(probeContent());
+    // addTo() on an open popup removes it first, and that fires 'close' into
+    // hideProbe half way through; an open popup is only moved.
+    if (!popup.isOpen()) popup.addTo(map);
   }
   function renderProbe() {
     if (!probeAt) return;
     if (!state.weather) return hideProbe();
     popup?.setDOMContent(probeContent());
+  }
+  function renderProbeNote() {
+    const span = popup?.getElement()?.querySelector('.probe-note > span');
+    if (span && probeAt) span.textContent = probeNote(grid ? probe(grid, probeAt.lat, probeAt.lon) : null);
+  }
+  function probeNote(r) {
+    if (!grid) return gridError ? `Weather grid unavailable: ${gridError}.` : 'Loading the weather grid…';
+    if (!r) return gridError ? `No reading here yet: ${gridError}.` : 'No reading here yet: this band of the grid is still on its way.';
+    return `From the ${grid.grid.step}° grid, ${timeAgo(grid.updated ?? grid.at)}.`;
   }
   function probeContent() {
     const { lat, lon } = probeAt;
@@ -253,18 +278,35 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     const from = r?.windDir == null ? '' : ` from ${compass(r.windDir)}`;
     const big = value(field) == null ? '—' : value(field) + (field === 'wind' ? from : '');
     const others = WEATHER.filter((w) => w[0] !== field).map(([id, n]) => (value(id) == null ? null : `${n} ${value(id)}${id === 'wind' ? from : ''}`)).filter(Boolean).join(' · ');
-    const note = !grid ? 'Loading the weather grid…' : !r ? 'No reading here yet: this band of the grid is still on its way.' : `From the ${grid.grid.step}° grid, ${timeAgo(grid.updated ?? grid.at)}.`;
     const line = `${name} ${big} at ${latLon(lat, lon)}${others ? ` · ${others}` : ''}`;
     const copy = el('button', { type: 'button', class: 'probe-copy', title: 'Copy this reading' }, 'Copy');
-    copy.addEventListener('click', () => {
-      navigator.clipboard?.writeText(line).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1500); }).catch(() => {});
+    copy.addEventListener('click', async () => {
+      copy.textContent = (await copyText(line)) ? 'Copied' : 'Copy failed';
+      setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
     });
     return el('div', { class: 'probe', role: 'status' },
       el('div', { class: 'probe-value' }, big),
       el('div', { class: 'probe-sub' }, `${name} · ${latLon(lat, lon)}`),
       others ? el('div', { class: 'probe-others' }, others) : null,
-      el('div', { class: 'probe-note' }, el('span', {}, note), r ? copy : null),
+      el('div', { class: 'probe-note' }, el('span', {}, probeNote(r)), r ? copy : null),
     );
+  }
+  // The clipboard API exists only on https and localhost; a phone reaching the
+  // server over plain http gets the old way, a selected box and execCommand.
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard) { await navigator.clipboard.writeText(text); return true; }
+    } catch { /* refused: try the old way */ }
+    try {
+      const box = el('textarea', { readonly: true, 'aria-hidden': 'true', style: 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0' });
+      box.value = text;
+      document.body.append(box);
+      box.select();
+      box.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      box.remove();
+      return ok;
+    } catch { return false; }
   }
   globe?.onMiss?.((e) => {
     if (!state.weather) return;
@@ -374,6 +416,8 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
         e.stopPropagation();
         closeMenu();
       } else if (probeAt) {
+        if (map?.getContainer().inert) return; // under the phone panel's scrim, that Escape is the panel's
+        e.stopPropagation(); // the detail card keeps its own Escape for the next press
         hideProbe();
       }
     }, true);
@@ -411,6 +455,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     state: () => ({ ...state }),
     set,
     probe: showProbe,
+    hideProbe,
     probeAt: () => probeAt,
     units: () => units,
     // Once /api/config is in: without a grid the weather choices are greyed out and a

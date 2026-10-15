@@ -254,6 +254,7 @@ const ctx = {
   select(owner) {
     for (const l of layers) if (l !== owner) l.clearSelection();
     globe?.blockSpin('detail', true);
+    overlays.hideProbe(); // the card takes over from a weather readout
     if (window.innerWidth <= 760) setSidebar(false);
   },
   viewBounds: () => globe?.viewBounds() ?? null,
