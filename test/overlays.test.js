@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../server/app.js';
 import { STEPS, createOverlaysRoute, fetchOrder, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
 import { HttpError } from '../server/lib/http.js';
-import { RAMPS, colorAt, convert, latOfRow, localUnits, nightPolygon, paintField, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
+import { RAMPS, colorAt, compass, convert, formatValue, latOfRow, localUnits, nearestIndex, nightPolygon, paintField, probe, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
 import { firesDay } from '../public/js/ui/overlays.js';
 
 const source = { id: 'earthquakes', name: 'Earthquakes', intervalMs: 60_000, fetch: async () => ({ quakes: [] }) };
@@ -263,6 +263,34 @@ test('the Sun is where the almanac puts it, and the night side is the other half
   assert.deepEqual(ring[0], ring.at(-1), 'closed');
   assert.ok(ring.some(([, lat]) => lat <= -89), 'reaches the dark (southern) pole in June');
   assert.ok(ring.every(([lon, lat]) => Math.abs(lon) <= 180 && Math.abs(lat) <= 90));
+});
+
+test('a readout blends the fields at a place, takes the wind direction from the nearest point, and is null where the grid is empty', () => {
+  const g = gridSpec(10);
+  const n = g.rows * g.cols;
+  const fields = { temperature: Array.from({ length: n }, (_, i) => g.lat0 + Math.floor(i / g.cols) * g.step), wind: new Array(n).fill(20), windDir: new Array(n).fill(null), rain: new Array(n).fill(0.5), clouds: new Array(n).fill(null) };
+  fields.windDir[nearestIndex(g, 42, -105)] = 315;
+  assert.equal(nearestIndex(g, 42, -105), 12 * g.cols + 8, '40°N, 100°W');
+  assert.equal(nearestIndex(g, -85, 179.9), 0 * g.cols + 0, 'clamped south, wrapped east');
+  const r = probe({ grid: g, fields }, 42, -105);
+  assert.ok(Math.abs(r.temperature - 42) < 1e-9, 'latitude blends to the latitude');
+  assert.equal(r.wind, 20);
+  assert.equal(r.windDir, 315);
+  assert.equal(r.rain, 0.5);
+  assert.equal(r.clouds, null);
+  for (const f of Object.keys(fields)) fields[f].fill(null);
+  assert.equal(probe({ grid: g, fields }, 42, -105), null, 'nothing yet');
+  assert.equal(compass(0), 'N');
+  assert.equal(compass(315), 'NW');
+  assert.equal(compass(359), 'N');
+  assert.equal(compass(-90), 'W');
+  assert.equal(compass(null), '');
+  assert.equal(formatValue('temperature', 20, 'us'), '68');
+  assert.equal(formatValue('temperature', 20.4, 'metric'), '20');
+  assert.equal(formatValue('rain', 2.54, 'us'), '0.10');
+  assert.equal(formatValue('rain', 2.54, 'metric'), '2.5');
+  assert.equal(formatValue('wind', 16.09344, 'us'), '10');
+  assert.equal(formatValue('clouds', null, 'us'), '');
 });
 
 test('units follow the browser: Fahrenheit, mph and inches for en-US', () => {

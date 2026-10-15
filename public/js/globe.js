@@ -156,6 +156,7 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
 
   // --- clicks and hover -------------------------------------------------------
   let interactive = []; // [{ layer, priority, owner }], set by app.js when visibility changes
+  const missCallbacks = []; // told of a click that no layer claimed (a tap on the bare planet)
   const priorityOf = (layerId) => interactive.find((i) => i.layer === layerId)?.priority ?? 0;
   const ownerOf = (layerId) => interactive.find((i) => i.layer === layerId)?.owner;
   const activeLayers = () => interactive.filter((i) => i.owner.visible && map.getLayer(i.layer)).map((i) => i.layer);
@@ -186,6 +187,9 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
       .sort((a, b) => b.p - a.p || a.d - b.d);
     for (const { f } of ranked) if (ownerOf(f.layer.id)?.pick(f, e)) return;
     detail?.hide();
+    // A ray that misses the sphere comes back as the nearest point of the horizon,
+    // which projects to another pixel: that tap was on space, not the planet.
+    if (map.project(e.lngLat).dist(e.point) < 2) for (const fn of missCallbacks) fn(e);
   });
 
   if (matchMedia('(hover: hover)').matches) {
@@ -271,6 +275,9 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
     swapImagery,
     setInteractive(list) {
       interactive = list;
+    },
+    onMiss(fn) {
+      missCallbacks.push(fn);
     },
     blockSpin(key, on) {
       if (on) spinBlocks.add(key);

@@ -141,3 +141,37 @@ export function unitLabel(field, units) {
   if (units !== 'us') return RAMPS[field].unit;
   return { temperature: '°F', wind: 'mph', rain: 'in/h', clouds: '%' }[field];
 }
+
+// The grid point nearest a place, for a value that cannot be blended between
+// points, such as a wind direction across 360°.
+export function nearestIndex(grid, lat, lon) {
+  const { lat0, lon0, step, rows, cols } = grid;
+  const r = Math.min(Math.max(Math.round((lat - lat0) / step), 0), rows - 1);
+  const c = ((Math.round((lon - lon0) / step) % cols) + cols) % cols;
+  return r * cols + c;
+}
+
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+export function compass(deg) {
+  if (deg == null || !Number.isFinite(deg)) return '';
+  return COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+}
+
+// A value as the readout prints it, in the reader's units, without the unit.
+export function formatValue(field, v, units) {
+  const c = convert(field, v, units);
+  if (c == null) return '';
+  if (field === 'rain') return c.toFixed(units === 'us' ? 2 : 1);
+  return Math.round(c).toString();
+}
+
+// The weather at a place, read off the grid: each field blended between the four
+// points round it, the wind direction from the nearest point. Null where the grid
+// has nothing yet (the poles before their wave has arrived).
+export function probe(data, lat, lon) {
+  const { grid, fields } = data;
+  const out = {};
+  for (const f of ['temperature', 'wind', 'rain', 'clouds']) out[f] = sample(grid, fields[f] ?? [], lat, lon);
+  out.windDir = fields.windDir?.[nearestIndex(grid, lat, lon)] ?? null;
+  return Object.values(out).some((v) => v != null) ? out : null;
+}
