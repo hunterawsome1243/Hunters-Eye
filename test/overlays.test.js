@@ -4,7 +4,8 @@ import { createApp } from '../server/app.js';
 import { STEPS, createOverlaysRoute, fetchOrder, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
 import { HttpError } from '../server/lib/http.js';
 import { RAMPS, colorAt, compass, convert, formatValue, latOfRow, localUnits, nearestIndex, nightPolygon, paintField, probe, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
-import { firesDay } from '../public/js/ui/overlays.js';
+import { firesDay, serverOut } from '../public/js/ui/overlays.js';
+import { backoffMs, describeError, limitHit } from '../shared/openmeteo.js';
 
 const source = { id: 'earthquakes', name: 'Earthquakes', intervalMs: 60_000, fetch: async () => ({ quakes: [] }) };
 async function serve(opts) {
@@ -71,7 +72,7 @@ test('the route fetches the grid in waves of 400 points a minute, serves what ha
   const settle = () => new Promise((r) => setTimeout(r, 20));
   try {
     const config = await (await fetch(`${base}/api/config`)).json();
-    assert.deepEqual(config.overlays, { weather: true });
+    assert.deepEqual(config.overlays, { weather: true, browser: { url: 'https://api.open-meteo.com/v1/forecast', gridDeg: 10, refreshMin: 120 } });
     const first = await get();
     assert.equal(first.status, 200);
     assert.equal(calls.length, 4, '400 points, 100 a request, one request at a time, in the first wave');
@@ -202,12 +203,73 @@ test('a 429 with Retry-After is honoured: no further requests until it has passe
   }
 });
 
+test('a 429 names the limit it hit, and the wait follows the limit', () => {
+  const daily = new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}');
+  const hourly = new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"error":true,"reason":"Hourly API request limit exceeded. Please try again in the next hour."}');
+  const minutely = new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"error":true,"reason":"Minutely API request limit exceeded. Please try again in one minute."}');
+  const other = new HttpError(502, 'api.open-meteo.com answered HTTP 502');
+  assert.equal(limitHit(daily), 'daily');
+  assert.equal(limitHit(hourly), 'hourly');
+  assert.equal(limitHit(minutely), 'minutely');
+  assert.equal(limitHit(other), null, 'only a 429 names a limit');
+  assert.equal(limitHit({ message: 'Daily API request limit exceeded' }), 'daily', 'a browser error without a status counts too');
+  assert.equal(limitHit(new Error('timed out')), null);
+  const now = Date.UTC(2026, 9, 15, 13, 20, 41);
+  assert.equal(backoffMs(daily, now), 3_600_000, 'the day is asked about again in an hour, not trusted to reset at midnight');
+  assert.equal(backoffMs(hourly, now), (60 - 20) * 60_000 - 41_000 + 60_000, 'until a minute past the top of the hour');
+  assert.equal(backoffMs(minutely, now), 61_000);
+  assert.equal(backoffMs(other, now), 60_000);
+  assert.equal(backoffMs(new HttpError(429, 'x', 2 * 3_600_000), now), 2 * 3_600_000, 'Retry-After wins when longer');
+  assert.match(describeError(daily), /daily allowance .* try again tomorrow/);
+  assert.match(describeError(hourly), /hourly allowance/);
+  assert.match(describeError(minutely), /600 points a minute/);
+  assert.equal(describeError(other), 'api.open-meteo.com answered HTTP 502');
+});
+
+test('the day\'s limit leaves Open-Meteo alone for an hour and tells browsers so', async () => {
+  let t = 9_000_000;
+  const calls = [];
+  const fetchJson = async (url) => { calls.push(url); throw new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}'); };
+  const route = createOverlaysRoute({ url: 'https://meteo.test', fetchJson, now: () => t });
+  const { base, close } = await serve({ overlays: route, browserFallback: false });
+  try {
+    assert.deepEqual((await (await fetch(`${base}/api/config`)).json()).overlays, { weather: true, browser: null }, 'BROWSER_FALLBACK=off keeps browsers out of it');
+    const res = await fetch(`${base}/api/overlays/weather`);
+    assert.equal(res.status, 502);
+    const body = await res.json();
+    assert.equal(body.error, "Weather grid unavailable: Open-Meteo's daily allowance for this address is used up (it says: try again tomorrow)");
+    assert.equal(body.retryInMs, 3_600_000);
+    assert.equal(calls.length, 1);
+    t += 59 * 60_000;
+    const later = await (await fetch(`${base}/api/overlays/weather`)).json();
+    assert.equal(calls.length, 1, 'one refused request an hour, not one a minute');
+    assert.equal(later.retryInMs, 60_000);
+    t += 2 * 60_000;
+    await fetch(`${base}/api/overlays/weather`);
+    assert.equal(calls.length, 2, 'asked again after the hour');
+  } finally {
+    close();
+  }
+});
+
+test('the browser fetches the grid itself only when the server has nothing fit to draw for a while', () => {
+  assert.equal(serverOut(null), true, 'the server is unreachable');
+  assert.equal(serverOut({ done: 0, error: 'daily allowance used up', retryInMs: 3_600_000 }), true, 'no grid at all');
+  assert.equal(serverOut({ done: 0, error: 'timed out', retryInMs: 60_000 }), true, 'no grid at all, whatever the wait');
+  assert.equal(serverOut({ done: 612, partial: false, stale: false, error: null, retryInMs: 0 }), false, 'a fresh grid');
+  assert.equal(serverOut({ done: 400, partial: true, stale: false, error: null, retryInMs: 0 }), false, 'a wave is on its way');
+  assert.equal(serverOut({ done: 400, partial: true, stale: false, error: 'minute limit hit', retryInMs: 61_000 }), false, 'the server retries in a minute');
+  assert.equal(serverOut({ done: 400, partial: true, stale: false, error: 'daily allowance used up', retryInMs: 3_600_000 }), true, 'the poles will not come for an hour');
+  assert.equal(serverOut({ done: 612, partial: false, stale: true, error: 'daily allowance used up', retryInMs: 3_600_000 }), true, 'an old grid that will not be refreshed for an hour');
+  assert.equal(serverOut({ done: 612, partial: false, stale: true, error: null, retryInMs: 0 }), false, 'an old grid being refreshed right now');
+});
+
 test('an empty OPEN_METEO_URL turns the weather overlay off', async () => {
   const route = createOverlaysRoute({ url: '' });
   assert.equal(route.enabled, false);
   const { base, close } = await serve({ overlays: route });
   try {
-    assert.deepEqual((await (await fetch(`${base}/api/config`)).json()).overlays, { weather: false });
+    assert.deepEqual((await (await fetch(`${base}/api/config`)).json()).overlays, { weather: false, browser: null });
     assert.equal((await fetch(`${base}/api/overlays/weather`)).status, 404);
   } finally {
     close();
