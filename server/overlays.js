@@ -34,8 +34,13 @@ export function createOverlaysRoute({
     if (!enabled) return res.status(404).json({ error: 'Weather overlays are off' });
     try {
       const d = await loader.current();
-      res.set('Cache-Control', d.partial ? 'no-store' : 'public, max-age=300');
-      res.json({ ...d, stale: now() - d.at >= refreshMs, error: loader.lastError ? describeError(loader.lastError) : null, retryInMs: loader.retryInMs() });
+      const stale = now() - d.at >= refreshMs;
+      // Only a whole, fresh, untroubled grid may be cached, and only until it is
+      // stale: a browser deciding whether to fetch for itself needs the server's
+      // current state, not a five-minute-old copy.
+      const ttl = d.partial || stale || loader.lastError ? 0 : Math.min(300, Math.floor((refreshMs - (now() - d.at)) / 1000));
+      res.set('Cache-Control', ttl > 0 ? `public, max-age=${ttl}` : 'no-store');
+      res.json({ ...d, stale, error: loader.lastError ? describeError(loader.lastError) : null, retryInMs: loader.retryInMs() });
     } catch (err) {
       res.status(502).json({ error: `Weather grid unavailable: ${describeError(err)}`, retryInMs: loader.retryInMs() });
     }

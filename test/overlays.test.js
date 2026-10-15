@@ -5,7 +5,7 @@ import { STEPS, createOverlaysRoute, fetchOrder, gridPoints, gridSpec, parseBatc
 import { HttpError } from '../server/lib/http.js';
 import { RAMPS, colorAt, compass, convert, formatValue, latOfRow, localUnits, nearestIndex, nightPolygon, paintField, probe, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
 import { firesDay, serverOut } from '../public/js/ui/overlays.js';
-import { backoffMs, describeError, limitHit } from '../shared/openmeteo.js';
+import { backoffMs, createGridLoader, describeError, limitHit } from '../shared/openmeteo.js';
 
 const source = { id: 'earthquakes', name: 'Earthquakes', intervalMs: 60_000, fetch: async () => ({ quakes: [] }) };
 async function serve(opts) {
@@ -224,6 +224,227 @@ test('a 429 names the limit it hit, and the wait follows the limit', () => {
   assert.match(describeError(hourly), /hourly allowance/);
   assert.match(describeError(minutely), /600 points a minute/);
   assert.equal(describeError(other), 'api.open-meteo.com answered HTTP 502');
+  assert.equal(describeError(new HttpError(503, 'api.open-meteo.com answered HTTP 503: {"error":true,"reason":"Too many concurrent requests"}')), 'Open-Meteo refused the request: Too many concurrent requests', 'the reason, not the JSON');
+  assert.equal(describeError(new HttpError(400, 'api.open-meteo.com answered HTTP 400: {"error":true}')), 'api.open-meteo.com answered HTTP 400', 'JSON without a reason is dropped');
+  assert.equal(describeError(new HttpError(500, 'api.open-meteo.com answered HTTP 500: Internal Server Error')), 'api.open-meteo.com answered HTTP 500: Internal Server Error', 'plain text stays');
+});
+
+test('only a whole, fresh, untroubled grid is cached, and only until it is stale', async () => {
+  let t = 6_000_000;
+  let fail = false;
+  const calls = [];
+  const fetchJson = async (url) => { if (fail) throw new Error('api.open-meteo.com: timed out'); return fakeJson(calls)(url); };
+  const route = createOverlaysRoute({ url: 'https://meteo.test', fetchJson, now: () => t, refreshMin: 120 });
+  const { base, close } = await serve({ overlays: route });
+  const get = async () => { const res = await fetch(`${base}/api/overlays/weather`); return { cache: res.headers.get('cache-control'), body: await res.json() }; };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  try {
+    assert.equal((await get()).cache, 'no-store', 'a partial grid');
+    t += 61_000;
+    await get();
+    await settle();
+    assert.equal((await get()).cache, 'public, max-age=300', 'whole and fresh');
+    t = 6_000_000 + 120 * 60_000 - 100_000;
+    assert.equal((await get()).cache, 'public, max-age=100', 'no longer than it stays fresh');
+    t = 6_000_000 + 121 * 60_000;
+    fail = true;
+    const stale = await get();
+    await settle();
+    assert.equal(stale.body.stale, true);
+    assert.equal(stale.cache, 'no-store', 'a stale grid: a browser must see the server\'s current state to decide whether to fetch for itself');
+    const troubled = await get();
+    assert.match(troubled.body.error, /timed out/);
+    assert.equal(troubled.cache, 'no-store', 'a grid whose refresh failed');
+  } finally {
+    close();
+  }
+});
+
+test('a replacement whose first wave failed is started afresh, so the new grid is not born stale', async () => {
+  let t = 4_000_000;
+  let fail = false;
+  const calls = [];
+  const fetchJson = async (url) => { if (fail) throw new Error('api.open-meteo.com: timed out'); return fakeJson(calls)(url); };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  const loader = createGridLoader({ url: 'https://meteo.test', now: () => t, fetchJson });
+  await loader.current();
+  t += 61_000;
+  await loader.current();
+  await settle();
+  assert.equal((await loader.current()).partial, false);
+  t += 121 * 60_000;
+  const firstTry = t;
+  fail = true;
+  assert.equal((await loader.current()).at, 4_000_000, 'the old grid goes out while the replacement\'s first wave fails');
+  await settle();
+  assert.match(loader.lastError.message, /timed out/);
+  fail = false;
+  t += 61_000;
+  const restart = t;
+  await loader.current();
+  await settle();
+  t += 61_000;
+  await loader.current();
+  await settle();
+  const fresh = await loader.current();
+  assert.equal(fresh.partial, false);
+  assert.equal(fresh.at, restart, 'dated from the wave that succeeded');
+  assert.notEqual(fresh.at, firstTry);
+  assert.equal(calls.length, 14);
+});
+
+test('the browser keeps its grid in storage: a reload or a second tab starts from it instead of buying it again', async () => {
+  let t = 2_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  const opts = { url: 'https://meteo.test', refreshMin: 120, now: () => t, store };
+  const callsA = [];
+  const callsB = [];
+  const a = createGridLoader({ ...opts, fetchJson: fakeJson(callsA) });
+  const b = createGridLoader({ ...opts, fetchJson: fakeJson(callsB) });
+  assert.equal((await a.current()).done, 400);
+  assert.equal(callsA.length, 4);
+  assert.ok(stored, 'the first wave is kept');
+  assert.equal((await b.current()).done, 400, 'the second tab starts from the first tab\'s wave');
+  assert.equal(callsB.length, 0, 'and buys nothing');
+  t += 61_000;
+  await b.current();
+  await settle();
+  assert.equal(callsB.length, 3, 'the second tab fetches the second wave');
+  assert.equal(callsA.length, 4, 'the first does not');
+  assert.equal((await b.current()).partial, false);
+  const aWhole = await a.current();
+  assert.equal(aWhole.partial, false, 'the first tab adopts the whole grid');
+  assert.equal(aWhole.fields.temperature[0], -80);
+  assert.equal(callsA.length, 4, 'without fetching');
+  const callsC = [];
+  const c = createGridLoader({ ...opts, fetchJson: fakeJson(callsC) });
+  assert.equal((await c.current()).partial, false, 'a reload starts from the stored grid');
+  assert.equal(callsC.length, 0);
+  t += 121 * 60_000;
+  const callsD = [];
+  const d = createGridLoader({ ...opts, fetchJson: fakeJson(callsD) });
+  assert.equal((await d.current()).at, t, 'a stored grid older than the refresh is not adopted');
+  assert.equal(callsD.length, 4);
+  stored = JSON.stringify({ step: 10, total: 612, waveAt: 0, retryAt: 0, error: null, data: { at: t, updated: t, done: 612, fields: { temperature: [] } }, next: null });
+  const callsE = [];
+  const e = createGridLoader({ ...opts, fetchJson: fakeJson(callsE) });
+  assert.equal((await e.current()).done, 400, 'a malformed stored grid is ignored');
+  assert.equal(callsE.length, 4);
+  stored = 'not even json';
+  const callsF = [];
+  const f = createGridLoader({ ...opts, fetchJson: fakeJson(callsF) });
+  assert.equal((await f.current()).done, 400, 'garbage in storage is ignored too');
+});
+
+test('the minute slot is claimed before the wave goes out, so a second tab arriving mid-wave waits instead of buying the same points', async () => {
+  let t = 8_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const callsA = [];
+  const callsB = [];
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: async (u) => { callsA.push(u); await gate; return fakeJson([])(u); } });
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: fakeJson(callsB) });
+  const first = a.current();
+  await settle();
+  assert.equal(callsA.length, 1, 'the first request is out and waiting');
+  t += 2_000;
+  await assert.rejects(b.current(), /next wave of points goes out in 59 s/);
+  assert.equal(callsB.length, 0, 'the second tab sees the claimed slot and sends nothing');
+  release();
+  assert.equal((await first).done, 400);
+  t += 13_000;
+  assert.equal((await b.current()).done, 400, 'and takes the wave once it has landed');
+  assert.equal(callsB.length, 0);
+});
+
+test('a first grid whose first wave was refused is dated from the wave that succeeded', async () => {
+  let t = 10_000_000;
+  let fail = true;
+  const fetchJson = async (u) => { if (fail) throw new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}'); return fakeJson([])(u); };
+  const loader = createGridLoader({ url: 'https://meteo.test', now: () => t, fetchJson });
+  await assert.rejects(loader.current(), /Daily/);
+  fail = false;
+  t += 3_600_000;
+  assert.equal((await loader.current()).at, t, 'born when the points came, not an hour earlier');
+});
+
+test('two pages that claimed the slot at the same instant: the one whose wave failed adopts the other\'s points instead of overwriting them', async () => {
+  let t = 11_000_000;
+  let stored = null;
+  let blind = 2; // both pages read the store before either wrote it
+  const store = { load: () => (blind-- > 0 ? null : (stored ? JSON.parse(stored) : null)), save: (g) => { stored = JSON.stringify(g); } };
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const callsA = [];
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: async (u) => { callsA.push(u); await gate; if (callsA.length >= 4) throw new Error('api.open-meteo.com: timed out'); return fakeJson([])(u); } });
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: fakeJson([]) });
+  const pa = a.current();
+  const pb = b.current();
+  assert.equal((await pb).done, 400, 'the second page finished its wave');
+  release();
+  await assert.rejects(pa, /timed out/);
+  assert.equal(JSON.parse(stored).data.done, 400, 'the store keeps the finished wave, not the 300 points of the failed one');
+  assert.equal((await a.current()).done, 400, 'the page that failed draws the other\'s points');
+  assert.match(a.lastError.message, /timed out/, 'and still says its own wave failed');
+});
+
+test('a refusal borrowed from the store clears once the page that was refused succeeds', async () => {
+  let t = 12_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  let fail = true;
+  const fetchJson = async (u) => { if (fail) throw new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}'); return fakeJson([])(u); };
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson });
+  await assert.rejects(a.current(), /Daily/);
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: fakeJson([]) });
+  t += 10_000;
+  await assert.rejects(b.current(), /Daily/, 'the second page says why there is nothing to draw');
+  fail = false;
+  t += 3_600_000;
+  assert.equal((await a.current()).done, 400);
+  t += 15_000;
+  assert.equal((await b.current()).done, 400);
+  assert.equal(b.lastError, null, 'the borrowed refusal is gone');
+});
+
+test('the budget is shared even between pages on different grid spacings', async () => {
+  let t = 13_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  const a = createGridLoader({ url: 'https://meteo.test', gridDeg: 10, now: () => t, store, fetchJson: fakeJson([]) });
+  await a.current();
+  const callsB = [];
+  const b = createGridLoader({ url: 'https://meteo.test', gridDeg: 20, now: () => t, store, fetchJson: fakeJson(callsB) });
+  t += 2_000;
+  await assert.rejects(b.current(), /next wave/);
+  assert.equal(callsB.length, 0, 'the 10° page used this minute');
+  t += 60_000;
+  assert.ok((await b.current()).done > 0, 'the 20° page buys its own grid the next minute');
+});
+
+test('a refusal is shared through storage too: a second tab waits out the limit instead of asking again', async () => {
+  let t = 3_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  const calls = [];
+  const fetchJson = async (url) => { calls.push(url); throw new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}'); };
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson });
+  await assert.rejects(a.current(), /Daily API request limit/);
+  assert.equal(calls.length, 1);
+  assert.equal(a.retryInMs(), 3_600_000);
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson });
+  await assert.rejects(b.current(), /Daily API request limit/);
+  assert.equal(calls.length, 1, 'the second tab does not ask again');
+  assert.equal(b.retryInMs(), 3_600_000);
+  assert.match(describeError(b.lastError), /daily allowance/);
+  t += 3_600_000;
+  await assert.rejects(b.current());
+  assert.equal(calls.length, 2, 'asked again once the hour has passed');
 });
 
 test('the day\'s limit leaves Open-Meteo alone for an hour and tells browsers so', async () => {

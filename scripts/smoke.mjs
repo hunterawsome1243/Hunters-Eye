@@ -6,7 +6,8 @@
 //   npm run smoke            # live data (needs internet)
 //   npm run smoke -- --fake  # offline stand-ins for the upstream APIs and tiles
 //   npm run smoke -- --fake --server-blocked   # the server can't reach OpenSky and
-//                            # CelesTrak, so the browser fallback must fill in
+//                            # CelesTrak and Open-Meteo refuses its address for the
+//                            # day, so the browser fallbacks must fill in
 //   npm run smoke -- --fake --browser-blocked  # ...and the browser is refused too (CORS)
 //   npm run smoke -- --fake --shots            # also save docs/globe-*.png and a phone run
 //
@@ -475,6 +476,11 @@ try {
   const expectedLog = (l) => serverBlocked && (FALLBACK_IDS.some((id) => l.startsWith(`[${id}]`)) || l.startsWith('Weather overlay:'));
   const serverErrors = serverLog.join('').split('\n').filter((l) => /error|warn|\[\w+\]/i.test(l) && !expectedLog(l));
   check('no server errors', serverErrors.length === 0, serverErrors.slice(0, 5).join(' | '));
+  if (serverBlocked) {
+    // The day's limit is asked about once an hour: one refused request in the whole run, not one per poll.
+    const weatherLines = serverLog.join('').split('\n').filter((l) => l.startsWith('Weather overlay:'));
+    check('Weather overlay: the server asked Open-Meteo once and left it alone', weatherLines.length === 1 && weatherLines[0].includes('Daily API request limit exceeded'), `${weatherLines.length} lines`);
+  }
   await browser.close();
   server.kill();
   upstream?.close();

@@ -91,6 +91,12 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
       storage()?.setItem(KEY, JSON.stringify(state));
     } catch { /* private mode or full */ }
   }
+  // The grid this browser fetched itself, kept for its other tabs and its next
+  // page load (about 20 KB), so a reload does not buy it again.
+  const gridStore = {
+    load: () => JSON.parse(storage()?.getItem(`${KEY}.grid`) ?? 'null'),
+    save: (g) => storage()?.setItem(`${KEY}.grid`, JSON.stringify(g)),
+  };
 
   const ready = () => !!globe?.ready && !!map;
   // Overlay layers are added later than the data layers (a grid arrives, a box is
@@ -127,7 +133,10 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
         serverAgain = Date.now() + (answer.retryInMs ?? 0);
       }
       try {
-        if (direct && serverOut(answer)) {
+        // A whole, fresh grid of this browser's own is never traded for the
+        // server's old or unfinished one.
+        const mine = grid?.via === 'browser' && !grid.partial && Date.now() - grid.at < grid.refreshMs;
+        if (direct && (serverOut(answer) || (mine && (answer.stale || answer.partial)))) {
           try {
             const g = await direct.current();
             grid = { ...g, stale: Date.now() - g.at >= g.refreshMs, via: 'browser' };
@@ -166,18 +175,21 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     let res;
     try {
       res = await fetchImpl(url, { signal: AbortSignal.timeout?.(timeoutMs) });
+      if (res.ok) return await res.json(); // the timeout can also fire here, mid-body, as an AbortError
     } catch (err) {
-      const e = new Error(err?.name === 'TimeoutError' ? `no answer within ${timeoutMs / 1000} s` : 'refused or unreachable (the site may not accept requests from other web pages)');
-      e.retryAfterMs = 10 * 60_000;
+      const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+      const why = timedOut ? `no answer within ${timeoutMs / 1000} s`
+        : err?.name === 'SyntaxError' ? `${new URL(url).host} sent an answer that is not JSON`
+          : res ? 'the connection dropped before the answer was complete'
+            : 'refused or unreachable (the site may not accept requests from other web pages)';
+      const e = new Error(why);
+      e.retryAfterMs = timedOut || !res ? 10 * 60_000 : 60_000;
       throw e;
     }
-    if (!res.ok) {
-      const body = (await res.text().catch(() => '')).slice(0, 200).replace(/\s+/g, ' ').trim();
-      const e = new Error(`${new URL(url).host} answered HTTP ${res.status}${body ? `: ${body}` : ''}`);
-      e.status = res.status;
-      throw e;
-    }
-    return res.json();
+    const body = (await res.text().catch(() => '')).slice(0, 200).replace(/\s+/g, ' ').trim();
+    const e = new Error(`${new URL(url).host} answered HTTP ${res.status}${body ? `: ${body}` : ''}`);
+    e.status = res.status;
+    throw e;
   }
   // While a field shows, ask again once the grid is older than its refresh. The
   // server sends a grid in waves a minute apart (the poles last), so a partial
@@ -530,7 +542,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
       weatherEnabled = !!config?.weather;
       const b = config?.browser;
       direct = weatherEnabled && b?.url
-        ? createGridLoader({ url: b.url, gridDeg: b.gridDeg, refreshMin: b.refreshMin, fetchJson: browserJson, onError: (err) => console.warn('Weather overlay (browser):', err.message) })
+        ? createGridLoader({ url: b.url, gridDeg: b.gridDeg, refreshMin: b.refreshMin, fetchJson: browserJson, store: gridStore, onError: (err) => console.warn('Weather overlay (browser):', err.message) })
         : null;
       if (!weatherEnabled && state.weather) state.weather = null;
       set({});
