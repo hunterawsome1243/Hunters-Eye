@@ -143,7 +143,14 @@ function openMeteo(req) {
   return list.length === 1 ? list[0] : list;
 }
 
+// Open-Meteo refusing an address that has used up the day's allowance (what Render's
+// shared address got on 2026-10-15): the server-blocked smoke points the server here.
+function openMeteoLimited() {
+  return { status: 429, body: JSON.stringify({ error: true, reason: 'Daily API request limit exceeded. Please try again tomorrow.' }) };
+}
+
 export const routes = {
+  '/open-meteo-limited': openMeteoLimited,
   '/open-meteo': openMeteo,
   '/whereami': whereami,
   '/nws': nws,

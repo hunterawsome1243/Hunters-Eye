@@ -1,6 +1,7 @@
 import * as maplibregl from 'maplibre-gl';
 import { el, latLon, timeAgo } from './format.js';
 import { IMAGE_CORNERS, RAMPS, compass, convert, formatValue, localUnits, nightPolygon, paintField, probe, rampCss, unitLabel } from '../overlays/field.js';
+import { createGridLoader, describeError } from '../../../shared/openmeteo.js';
 
 // Overlays: an "Overlays" button at the top left of the globe that opens a menu of
 // washes drawn over the planet, under the data. One weather field at a time
@@ -43,12 +44,22 @@ export function firesDay(now = Date.now()) {
   return new Date(now - 86_400_000).toISOString().slice(0, 10);
 }
 
+// Whether the server's answer leaves the browser to fetch the grid itself: the
+// server has no grid at all, or an old or unfinished one with a failure it will
+// not retry for a while (Open-Meteo's hourly or daily limit for its address). A
+// minute's pause after a wave is the server's business.
+export function serverOut(answer) {
+  if (!answer || !(answer.done > 0)) return true;
+  return !!answer.error && !!(answer.stale || answer.partial) && (answer.retryInMs ?? 0) > 5 * 60_000;
+}
+
 export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = () => 0, locale = navigator.language } = {}) {
   const state = { weather: null, night: false, fires: false, ...recall() };
   const units = localUnits(locale);
   let weatherEnabled = null; // from /api/config; null until it answers
-  let grid = null; // the server's answer: { at, updated, grid, fields, partial, refreshMs, stale }
+  let grid = null; // the grid: { at, updated, grid, fields, partial, refreshMs, stale, via? }
   let gridError = '';
+  let direct = null; // this browser's own loader, from /api/config, for when the server's address is used up
   let loading = null;
   let painted = ''; // which field the map's image source currently shows
   let image = { key: '', url: '' }; // the last field painted, as a PNG; a style reload reuses it instead of painting again
@@ -91,15 +102,40 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   const anyOn = () => !!(state.weather || state.night || state.fires);
 
   // --- the weather grid -------------------------------------------------------
+  // The server keeps one grid for everyone. When its address has used up Open-
+  // Meteo's allowance (a shared host's address serves other people's apps too) or
+  // it cannot reach Open-Meteo at all, this browser fetches the grid itself, in
+  // the same waves, on its own address and allowance, the way planes and
+  // satellites fall back (public/js/fallback.js); the menu and the readout say so.
   async function loadGrid() {
     if (loading) return loading;
     loading = (async () => {
+      let answer;
       try {
         const res = await fetchImpl('/api/overlays/weather');
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        grid = data;
-        gridError = data.error && (data.stale || data.partial) ? `last refresh failed (${data.error})` : '';
+        answer = res.ok ? data : { done: 0, error: (data.error || `HTTP ${res.status}`).replace(/^Weather grid unavailable: /, ''), retryInMs: data.retryInMs ?? 0 };
+      } catch (err) {
+        answer = { done: 0, error: err.message, retryInMs: 0 };
+      }
+      try {
+        if (direct && serverOut(answer)) {
+          try {
+            const g = await direct.current();
+            grid = { ...g, stale: Date.now() - g.at >= g.refreshMs, via: 'browser' };
+            gridError = direct.lastError && (grid.partial || grid.stale) ? `last refresh failed (${describeError(direct.lastError)})` : '';
+          } catch (err) {
+            const both = `${answer.error}; your browser's request failed too (${describeError(err)})`;
+            if (!(answer.done > 0)) throw new Error(both);
+            grid = answer; // the server's old grid is better than nothing
+            gridError = both;
+          }
+        } else if (answer.done > 0) {
+          grid = answer;
+          gridError = answer.error && (answer.stale || answer.partial) ? `last refresh failed (${answer.error})` : '';
+        } else {
+          throw new Error(answer.error);
+        }
         paint();
         scheduleWeather(); // a partial grid is asked for again soon, a whole one when it is old
       } catch (err) {
@@ -117,6 +153,27 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   // While a field shows, ask again once the grid is older than its refresh. The
   // server sends a grid in waves a minute apart (the poles last), so a partial
   // grid is asked for again every few seconds until it is whole.
+  // fetch for the shared loader, in the shape server/lib/http.js gives it: the
+  // status and a line of the body on a refusal; a long pause after a network
+  // failure, since a site that refuses other web pages' requests will not change
+  // its mind in a minute.
+  async function browserJson(url, { timeoutMs = 15_000 } = {}) {
+    let res;
+    try {
+      res = await fetchImpl(url, { signal: AbortSignal.timeout?.(timeoutMs) });
+    } catch (err) {
+      const e = new Error(err?.name === 'TimeoutError' ? `no answer within ${timeoutMs / 1000} s` : 'refused or unreachable (the site may not accept requests from other web pages)');
+      e.retryAfterMs = 10 * 60_000;
+      throw e;
+    }
+    if (!res.ok) {
+      const body = (await res.text().catch(() => '')).slice(0, 200).replace(/\s+/g, ' ').trim();
+      const e = new Error(`${new URL(url).host} answered HTTP ${res.status}${body ? `: ${body}` : ''}`);
+      e.status = res.status;
+      throw e;
+    }
+    return res.json();
+  }
   function scheduleWeather() {
     clearTimeout(weatherTimer);
     if (!state.weather) return;
@@ -267,7 +324,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   function probeNote(r) {
     if (!grid) return gridError ? `Weather grid unavailable: ${gridError}.` : 'Loading the weather grid…';
     if (!r) return gridError ? `No reading here yet: ${gridError}.` : 'No reading here yet: this band of the grid is still on its way.';
-    return `From the ${grid.grid.step}° grid, ${timeAgo(grid.updated ?? grid.at)}.`;
+    return `From the ${grid.grid.step}° grid, ${timeAgo(grid.updated ?? grid.at)}${grid.via === 'browser' ? ', via your browser' : ''}.`;
   }
   function probeContent() {
     const { lat, lon } = probeAt;
@@ -321,9 +378,10 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     if (loading && !grid) return 'Loading the weather grid…';
     if (!grid) return gridError ? `Weather grid unavailable: ${gridError}` : 'Open-Meteo, current conditions on a 10° grid.';
     const when = `updated ${timeAgo(grid.updated ?? grid.at)}`;
-    if (gridError) return `Open-Meteo, ${when}; ${gridError}.`;
-    if (grid.partial) return `Open-Meteo, ${when}; the far north and south are on their way.`;
-    return `Open-Meteo, current conditions, ${when}.`;
+    const from = grid.via === 'browser' ? 'Open-Meteo via your browser' : 'Open-Meteo';
+    if (gridError) return `${from}, ${when}; ${gridError}.`;
+    if (grid.partial) return `${from}, ${when}; the far north and south are on their way.`;
+    return `${from}, current conditions, ${when}.`;
   }
   // The controls are built once and patched after: rebuilding them while the menu
   // is open would throw away the input a keyboard user is on after every arrow key.
@@ -462,6 +520,10 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     // remembered field is let go; the night side and fires need nothing from the server.
     configure(config) {
       weatherEnabled = !!config?.weather;
+      const b = config?.browser;
+      direct = weatherEnabled && b?.url
+        ? createGridLoader({ url: b.url, gridDeg: b.gridDeg, refreshMin: b.refreshMin, fetchJson: browserJson, onError: (err) => console.warn('Weather overlay (browser):', err.message) })
+        : null;
       if (!weatherEnabled && state.weather) state.weather = null;
       set({});
     },

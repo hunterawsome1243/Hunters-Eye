@@ -61,10 +61,12 @@ export function createApp(sources, pollerOptions, {
   // whether the "Brief me" button should exist (server/brief.js), `describe`
   // whether the detail card's "Describe" button should (server/describe.js),
   // `whereami` whether the "You are here" button should (server/whereami.js),
-  // `overlays.weather` whether the weather heat maps have a grid to draw (server/overlays.js).
+  // `overlays.weather` whether the weather heat maps have a grid to draw, and
+  // `overlays.browser` where a browser fetches it itself when this server's
+  // address has used up Open-Meteo's allowance (server/overlays.js).
   app.get('/api/config', (req, res) => {
     const fallback = browserFallback ? sources.filter((s) => s.browserUrl).map((s) => [s.id, s.browserUrl]) : [];
-    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null, describe: describe.enabled ? { model: describe.model } : null, whereami: whereami.enabled, overlays: { weather: overlays.enabled } });
+    res.json({ basemap: basemapStyle, imagery, fallback: Object.fromEntries(fallback), brief: brief.enabled ? { model: brief.model } : null, describe: describe.enabled ? { model: describe.model } : null, whereami: whereami.enabled, overlays: { weather: overlays.enabled, browser: browserFallback ? overlays.browser : null } });
   });
 
   // A Claude-written situation brief of what the dashboard shows, on demand.

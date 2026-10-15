@@ -53,6 +53,9 @@ if (fake) {
       CELESTRAK_URL: 'http://127.0.0.1:9/celestrak',
       OPENSKY_BROWSER_URL: `${browserBase}/opensky`,
       CELESTRAK_BROWSER_URL: `${browserBase}/celestrak`,
+      // Open-Meteo answers the server's address with "daily limit exceeded"; the browser gets the real stand-in.
+      OPEN_METEO_URL: `${base}/open-meteo-limited`,
+      OPEN_METEO_BROWSER_URL: `${browserBase}/open-meteo`,
     });
   }
 }
@@ -70,8 +73,10 @@ const launchOpts = { args: ['--enable-unsafe-swiftshader'] };
 if (process.env.CHROMIUM_PATH) launchOpts.executablePath = process.env.CHROMIUM_PATH;
 const browser = await chromium.launch(launchOpts);
 const consoleErrors = [];
-// With --browser-blocked, Chromium itself logs the refused cross-origin requests.
-const expectedError = (m) => browserBlocked && (m.text().includes('/nocors/') || m.location().url.includes('/nocors/'));
+// With --browser-blocked, Chromium itself logs the refused cross-origin requests;
+// with the server's address over Open-Meteo's limit, the weather grid answers 502.
+const expectedError = (m) => (browserBlocked && (m.text().includes('/nocors/') || m.location().url.includes('/nocors/')))
+  || (serverBlocked && m.location().url.includes('/api/overlays/weather'));
 
 async function openPage(options = {}) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, ...options });
@@ -299,8 +304,19 @@ try {
 
   // Overlays: the button at the top left opens a menu; a weather field paints an
   // image under the data with a legend under the button; night side and fires
-  // add their own layers; the choice survives a reload.
-  {
+  // add their own layers; the choice survives a reload. With the server's address
+  // over Open-Meteo's daily limit the browser fetches the grid itself; refused
+  // too (CORS), the menu says both failed.
+  if (browserBlocked) {
+    await page.locator('.he-ctrl-overlays').click();
+    await page.locator('#overlays-popover input[value="temperature"]').check();
+    const note = await page.waitForFunction(() => {
+      const n = document.querySelector('.overlay-note')?.textContent ?? '';
+      return n.includes("your browser's request failed too") ? n : null;
+    }, null, { timeout: 15_000 }).then((h) => h.jsonValue()).catch(() => '');
+    check('Overlays: the menu explains that the server and the browser both failed', note.includes('daily allowance') && note.includes('your browser'), note || 'no such note');
+    await page.keyboard.press('Escape');
+  } else {
     await page.locator('.he-ctrl-overlays').click();
     check('Overlays: the button opens the menu', await page.locator('#overlays-popover').isVisible());
     await page.locator('#overlays-popover input[value="temperature"]').check();
@@ -309,6 +325,10 @@ try {
       return !!m.getLayer('he-overlay-weather') && m.getLayoutProperty('he-overlay-weather', 'visibility') !== 'none' && !document.querySelector('.overlay-legend').hidden;
     }, null, { timeout: 10_000 }).then(() => true).catch(() => false);
     check('Overlays: temperature paints a heat map with a legend', heat);
+    if (serverBlocked) {
+      const note = await page.locator('.overlay-note').first().textContent();
+      check('Overlays: the browser fetched the grid itself', note.includes('via your browser') && !note.includes('failed'), note);
+    }
     const legend = await page.locator('.overlay-legend').textContent();
     check('Overlays: the legend names the field and its unit', /Temperature · °[CF]/.test(legend), legend);
     const below = await evalMap(() => {
@@ -452,7 +472,7 @@ try {
 } finally {
   check('no browser console errors', consoleErrors.length === 0, consoleErrors.slice(0, 5).join(' | '));
   // In the blocked modes the server is expected to log its failed attempts.
-  const expectedLog = (l) => serverBlocked && FALLBACK_IDS.some((id) => l.startsWith(`[${id}]`));
+  const expectedLog = (l) => serverBlocked && (FALLBACK_IDS.some((id) => l.startsWith(`[${id}]`)) || l.startsWith('Weather overlay:'));
   const serverErrors = serverLog.join('').split('\n').filter((l) => /error|warn|\[\w+\]/i.test(l) && !expectedLog(l));
   check('no server errors', serverErrors.length === 0, serverErrors.slice(0, 5).join(' | '));
   await browser.close();
