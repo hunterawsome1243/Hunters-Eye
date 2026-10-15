@@ -99,19 +99,28 @@ export function backoffMs(err, now = Date.now()) {
 }
 
 // A failure in a few plain words, for the menu and the readout, in place of the
-// raw answer.
+// raw answer: a refusal's reason without its JSON, or just the status.
 export function describeError(err) {
   const limit = limitHit(err);
   if (limit === 'daily') return "Open-Meteo's daily allowance for this address is used up (it says: try again tomorrow)";
   if (limit === 'hourly') return "Open-Meteo's hourly allowance for this address is used up until the top of the hour";
   if (limit === 'minutely') return "Open-Meteo's limit of 600 points a minute for this address was hit";
-  return err?.message || String(err);
+  const message = err?.message || String(err);
+  const m = /^(.*answered HTTP \d+)(?::\s*(\{.*\}))?\s*$/s.exec(message);
+  if (!m) return message;
+  let reason = '';
+  try { reason = JSON.parse(m[2] ?? '{}').reason ?? ''; } catch { /* not JSON after all */ }
+  return reason ? `Open-Meteo refused the request: ${reason}` : m[1];
 }
 
 // The grid, kept and refreshed. `fetchJson(url, { timeoutMs })` fetches and parses
 // one request and throws an Error with `status` and `retryAfterMs` on a refusal
-// (server/lib/http.js on the server, a fetch wrapper in the browser).
-export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Date.now, onError = () => {} } = {}) {
+// (server/lib/http.js on the server, a fetch wrapper in the browser). A `store`
+// ({ load(), save(obj) }, localStorage in the browser) keeps the grid and the
+// budget across page loads and tabs: a reload or a second tab starts from the
+// stored grid while it is younger than the refresh, continues a partial one, and
+// waits for the shared minute slot instead of buying 612 points of its own.
+export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Date.now, onError = () => {}, store = null } = {}) {
   const enabled = !!url;
   const grid = gridSpec(gridDeg);
   const refreshMs = Math.max(Number(refreshMin) || 120, 15) * 60_000;
@@ -126,6 +135,30 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
 
   function emptyGrid(t) {
     return { at: t, updated: t, grid, fields: Object.fromEntries(FIELDS.map((f) => [f, new Array(points.length).fill(null)])), done: 0, total: points.length, partial: true, units: UNITS, refreshMs };
+  }
+
+  // What another page of this browser has fetched since: adopted when it is further
+  // along than this one, so two tabs do not both buy the same wave.
+  function adopt() {
+    let s = null;
+    try { s = store?.load() ?? null; } catch { s = null; }
+    if (!s || s.step !== grid.step || s.total !== points.length || !FIELDS.every((f) => Array.isArray(s.fields?.[f]) && s.fields[f].length === points.length)) return;
+    const t = now();
+    // The budget is shared whatever the grid's age: the minute slot and any wait a
+    // refusal asked for belong to the whole browser.
+    waveAt = Math.max(waveAt, s.waveAt || 0);
+    retryAt = Math.max(retryAt, s.retryAt || 0);
+    if (s.retryAt > t && s.error && !lastError) lastError = Object.assign(new Error(s.error.message), s.error.status == null ? {} : { status: s.error.status });
+    if (t - s.at >= refreshMs) return;
+    const newer = (ref) => !ref || s.at > ref.at || (s.at === ref.at && s.done > ref.done);
+    const g = { ...emptyGrid(s.at), updated: s.updated, fields: s.fields, done: s.done, partial: s.done < points.length };
+    if (data && !data.partial && g.partial) {
+      if (s.at > data.at && newer(next)) next = g; // theirs is a replacement still on its way
+    } else if (newer(data)) { data = g; next = null; }
+  }
+  function keep(g) {
+    const error = lastError ? { message: lastError.message, status: lastError.status ?? null } : null;
+    try { store?.save({ step: grid.step, total: points.length, at: g.at, updated: g.updated, done: g.done, fields: g.fields, waveAt, retryAt, error }); } catch { /* storage full or blocked */ }
   }
 
   // One wave: the next WAVE_POINTS points of the grid, one request at a time (Open-
@@ -153,11 +186,13 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
   // limit it hit or a Retry-After header asks: a rate-limited Open-Meteo is left
   // alone, not hammered.
   async function current() {
+    if (!inflight) adopt();
     const t = now();
     const complete = data && !data.partial;
     if (complete && t - data.at < refreshMs) return data;
     if (!inflight && t >= retryAt && t - waveAt >= WAVE_GAP_MS) {
       if (data?.partial && t - data.at >= refreshMs) data = emptyGrid(t); // too old to finish: start over
+      if (next && next.done === 0) next = null; // a replacement nothing has reached yet is born now, not when it was first wanted
       let g;
       if (data && data.partial) g = data;
       else if (complete) g = next ?? (next = emptyGrid(t));
@@ -166,10 +201,12 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
       inflight = fetchWave(g).then(() => {
         lastError = null;
         if (g === next && !g.partial) { data = g; next = null; }
+        keep(g);
         return g;
       }).catch((err) => {
         retryAt = now() + backoffMs(err, now());
         lastError = err;
+        keep(g);
         onError(err);
         throw err;
       }).finally(() => { inflight = null; });
@@ -178,7 +215,7 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
       inflight?.catch(() => {}); // what there is goes out now; the failure is reported through lastError
       return data;
     }
-    if (!inflight) throw lastError;
+    if (!inflight) throw lastError ?? new Error('another page of this browser is fetching the grid; it arrives within a minute');
     return inflight.then(() => data);
   }
 
