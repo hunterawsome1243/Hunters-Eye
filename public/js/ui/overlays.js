@@ -179,8 +179,9 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     } catch (err) {
       const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
       const why = timedOut ? `no answer within ${timeoutMs / 1000} s`
-        : res ? `${new URL(url).host} sent an answer that is not JSON`
-          : 'refused or unreachable (the site may not accept requests from other web pages)';
+        : err?.name === 'SyntaxError' ? `${new URL(url).host} sent an answer that is not JSON`
+          : res ? 'the connection dropped before the answer was complete'
+            : 'refused or unreachable (the site may not accept requests from other web pages)';
       const e = new Error(why);
       e.retryAfterMs = timedOut || !res ? 10 * 60_000 : 60_000;
       throw e;

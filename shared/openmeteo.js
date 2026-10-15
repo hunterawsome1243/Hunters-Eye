@@ -116,10 +116,13 @@ export function describeError(err) {
 // The grid, kept and refreshed. `fetchJson(url, { timeoutMs })` fetches and parses
 // one request and throws an Error with `status` and `retryAfterMs` on a refusal
 // (server/lib/http.js on the server, a fetch wrapper in the browser). A `store`
-// ({ load(), save(obj) }, localStorage in the browser) keeps the grid and the
-// budget across page loads and tabs: a reload or a second tab starts from the
-// stored grid while it is younger than the refresh, continues a partial one, and
-// waits for the shared minute slot instead of buying 612 points of its own.
+// ({ load(), save(obj) }, localStorage in the browser) shares the grid and the
+// budget between the pages of one browser: a reload or a second tab starts from
+// the stored grid while it is younger than the refresh, continues a partial one,
+// and waits for the minute slot another page has claimed instead of buying 400
+// points of its own. The store is read before every decision, written before a
+// wave (to claim the slot) and after it (to share what arrived), and always merged
+// rather than overwritten, so a slower page never regresses what a faster one kept.
 export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Date.now, onError = () => {}, store = null } = {}) {
   const enabled = !!url;
   const grid = gridSpec(gridDeg);
@@ -129,37 +132,55 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
   let data = null; // the grid being served: { at, updated, grid, fields, done, total, partial, units, refreshMs }
   let next = null; // its replacement, built in waves while the old grid is still served
   let inflight = null; // the wave on its way
-  let waveAt = 0; // when the last wave went out; the next waits WAVE_GAP_MS
+  let waveAt = 0; // when the last wave went out, from any page of this browser; the next waits WAVE_GAP_MS
   let retryAt = 0; // after a failure, no attempt before this
   let lastError = null;
+  let borrowed = false; // lastError came from the store (another page was refused), not from a wave of our own
 
   function emptyGrid(t) {
     return { at: t, updated: t, grid, fields: Object.fromEntries(FIELDS.map((f) => [f, new Array(points.length).fill(null)])), done: 0, total: points.length, partial: true, units: UNITS, refreshMs };
   }
+  const whole = (g) => !!g && !g.partial;
+  const fresh = (g, t) => !!g && t - g.at < refreshMs;
 
-  // What another page of this browser has fetched since: adopted when it is further
-  // along than this one, so two tabs do not both buy the same wave.
-  function adopt() {
+  // What goes to the store: only a grid with points in it says anything, so an
+  // empty one (a refused first wave) never travels with the time it was wanted.
+  const pack = (g) => (g && g.done > 0 ? { at: g.at, updated: g.updated, done: g.done, fields: g.fields } : null);
+  const valid = (p) => !!p && Number.isFinite(p.at) && Number.isInteger(p.done) && p.done > 0 && p.done <= points.length
+    && FIELDS.every((f) => Array.isArray(p.fields?.[f]) && p.fields[f].length === points.length);
+  const unpack = (p) => ({ ...emptyGrid(p.at), updated: p.updated, fields: p.fields, done: p.done, partial: p.done < points.length });
+  // Further along than what this page holds: a whole grid by its date, a partial
+  // one by its points; a whole grid is never traded for a partial one here (a
+  // newer partial is its replacement, kept as `next`).
+  const ahead = (p, g) => !g || (p.done === points.length ? !whole(g) || p.at > g.at : g.partial && (p.done > g.done || (p.done === g.done && p.at > g.at)));
+
+  // Take from the store whatever is further along: the budget always (the minute
+  // slot and any wait a refusal asked for belong to the whole browser, whatever
+  // grid was stored), the grids when they fit this spacing.
+  function merge() {
     let s = null;
     try { s = store?.load() ?? null; } catch { s = null; }
-    if (!s || s.step !== grid.step || s.total !== points.length || !FIELDS.every((f) => Array.isArray(s.fields?.[f]) && s.fields[f].length === points.length)) return;
+    if (!s || typeof s !== 'object') return;
     const t = now();
-    // The budget is shared whatever the grid's age: the minute slot and any wait a
-    // refusal asked for belong to the whole browser.
-    waveAt = Math.max(waveAt, s.waveAt || 0);
-    retryAt = Math.max(retryAt, s.retryAt || 0);
-    if (s.retryAt > t && s.error && !lastError) lastError = Object.assign(new Error(s.error.message), s.error.status == null ? {} : { status: s.error.status });
-    if (t - s.at >= refreshMs) return;
-    const newer = (ref) => !ref || s.at > ref.at || (s.at === ref.at && s.done > ref.done);
-    const g = { ...emptyGrid(s.at), updated: s.updated, fields: s.fields, done: s.done, partial: s.done < points.length };
-    if (data && !data.partial && g.partial) {
-      if (s.at > data.at && newer(next)) next = g; // theirs is a replacement still on its way
-    } else if (newer(data)) { data = g; next = null; }
+    waveAt = Math.max(waveAt, Number(s.waveAt) || 0);
+    retryAt = Math.max(retryAt, Number(s.retryAt) || 0);
+    if (borrowed && !s.error) { lastError = null; borrowed = false; } // the page that was refused has since succeeded
+    if (s.error && retryAt > t && !lastError && !(data?.done > 0)) { // nothing to draw: say why, in the other page's words
+      lastError = Object.assign(new Error(String(s.error.message)), s.error.status == null ? {} : { status: s.error.status });
+      borrowed = true;
+    }
+    if (s.step !== grid.step || s.total !== points.length) return;
+    for (const p of [s.data, s.next]) {
+      if (!valid(p) || !fresh(p, t)) continue;
+      if (ahead(p, data)) { data = unpack(p); next = null; }
+      else if (whole(data) && p.done < points.length && p.at > data.at && ahead(p, next)) next = unpack(p);
+    }
   }
-  function keep(g) {
+  function keep() {
     const error = lastError ? { message: lastError.message, status: lastError.status ?? null } : null;
-    try { store?.save({ step: grid.step, total: points.length, at: g.at, updated: g.updated, done: g.done, fields: g.fields, waveAt, retryAt, error }); } catch { /* storage full or blocked */ }
+    try { store?.save({ step: grid.step, total: points.length, waveAt, retryAt, error, data: pack(data), next: pack(next) }); } catch { /* storage full or blocked */ }
   }
+  const waitError = (t) => new Error(`the next wave of points goes out in ${Math.ceil(Math.max(0, Math.max(retryAt, waveAt + WAVE_GAP_MS) - t) / 1000)} s`);
 
   // One wave: the next WAVE_POINTS points of the grid, one request at a time (Open-
   // Meteo also refuses concurrent requests from one address: "Too many concurrent
@@ -186,27 +207,35 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
   // limit it hit or a Retry-After header asks: a rate-limited Open-Meteo is left
   // alone, not hammered.
   async function current() {
-    if (!inflight) adopt();
+    if (!inflight) merge();
     const t = now();
-    const complete = data && !data.partial;
-    if (complete && t - data.at < refreshMs) return data;
+    if (whole(data) && fresh(data, t)) return data;
     if (!inflight && t >= retryAt && t - waveAt >= WAVE_GAP_MS) {
-      if (data?.partial && t - data.at >= refreshMs) data = emptyGrid(t); // too old to finish: start over
-      if (next && next.done === 0) next = null; // a replacement nothing has reached yet is born now, not when it was first wanted
+      // A grid with no points yet is born now, not when it was first wanted (its
+      // first wave may have been refused an hour ago); a partial one too old to
+      // finish is started over.
+      if (data?.partial && (data.done === 0 || !fresh(data, t))) data = emptyGrid(t);
+      if (next && next.done === 0) next = null;
       let g;
       if (data && data.partial) g = data;
-      else if (complete) g = next ?? (next = emptyGrid(t));
+      else if (whole(data)) g = next ?? (next = emptyGrid(t));
       else g = data = emptyGrid(t);
       waveAt = t;
+      keep(); // the slot is claimed before the first request goes out, so another page waits for it
       inflight = fetchWave(g).then(() => {
         lastError = null;
+        borrowed = false;
         if (g === next && !g.partial) { data = g; next = null; }
-        keep(g);
+        merge();
+        keep();
         return g;
       }).catch((err) => {
         retryAt = now() + backoffMs(err, now());
         lastError = err;
-        keep(g);
+        borrowed = false;
+        merge(); // another page may have finished what this wave was fetching
+        if (whole(data) && fresh(data, now())) lastError = null;
+        keep();
         onError(err);
         throw err;
       }).finally(() => { inflight = null; });
@@ -215,7 +244,7 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
       inflight?.catch(() => {}); // what there is goes out now; the failure is reported through lastError
       return data;
     }
-    if (!inflight) throw lastError ?? new Error('another page of this browser is fetching the grid; it arrives within a minute');
+    if (!inflight) throw lastError ?? waitError(t);
     return inflight.then(() => data);
   }
 

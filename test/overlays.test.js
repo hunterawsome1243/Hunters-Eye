@@ -327,11 +327,104 @@ test('the browser keeps its grid in storage: a reload or a second tab starts fro
   const d = createGridLoader({ ...opts, fetchJson: fakeJson(callsD) });
   assert.equal((await d.current()).at, t, 'a stored grid older than the refresh is not adopted');
   assert.equal(callsD.length, 4);
-  stored = JSON.stringify({ step: 10, total: 612, at: t, updated: t, done: 612, fields: { temperature: [] } });
+  stored = JSON.stringify({ step: 10, total: 612, waveAt: 0, retryAt: 0, error: null, data: { at: t, updated: t, done: 612, fields: { temperature: [] } }, next: null });
   const callsE = [];
   const e = createGridLoader({ ...opts, fetchJson: fakeJson(callsE) });
   assert.equal((await e.current()).done, 400, 'a malformed stored grid is ignored');
   assert.equal(callsE.length, 4);
+  stored = 'not even json';
+  const callsF = [];
+  const f = createGridLoader({ ...opts, fetchJson: fakeJson(callsF) });
+  assert.equal((await f.current()).done, 400, 'garbage in storage is ignored too');
+});
+
+test('the minute slot is claimed before the wave goes out, so a second tab arriving mid-wave waits instead of buying the same points', async () => {
+  let t = 8_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const callsA = [];
+  const callsB = [];
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: async (u) => { callsA.push(u); await gate; return fakeJson([])(u); } });
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: fakeJson(callsB) });
+  const first = a.current();
+  await settle();
+  assert.equal(callsA.length, 1, 'the first request is out and waiting');
+  t += 2_000;
+  await assert.rejects(b.current(), /next wave of points goes out in 59 s/);
+  assert.equal(callsB.length, 0, 'the second tab sees the claimed slot and sends nothing');
+  release();
+  assert.equal((await first).done, 400);
+  t += 13_000;
+  assert.equal((await b.current()).done, 400, 'and takes the wave once it has landed');
+  assert.equal(callsB.length, 0);
+});
+
+test('a first grid whose first wave was refused is dated from the wave that succeeded', async () => {
+  let t = 10_000_000;
+  let fail = true;
+  const fetchJson = async (u) => { if (fail) throw new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}'); return fakeJson([])(u); };
+  const loader = createGridLoader({ url: 'https://meteo.test', now: () => t, fetchJson });
+  await assert.rejects(loader.current(), /Daily/);
+  fail = false;
+  t += 3_600_000;
+  assert.equal((await loader.current()).at, t, 'born when the points came, not an hour earlier');
+});
+
+test('two pages that claimed the slot at the same instant: the one whose wave failed adopts the other\'s points instead of overwriting them', async () => {
+  let t = 11_000_000;
+  let stored = null;
+  let blind = 2; // both pages read the store before either wrote it
+  const store = { load: () => (blind-- > 0 ? null : (stored ? JSON.parse(stored) : null)), save: (g) => { stored = JSON.stringify(g); } };
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const callsA = [];
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: async (u) => { callsA.push(u); await gate; if (callsA.length >= 4) throw new Error('api.open-meteo.com: timed out'); return fakeJson([])(u); } });
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: fakeJson([]) });
+  const pa = a.current();
+  const pb = b.current();
+  assert.equal((await pb).done, 400, 'the second page finished its wave');
+  release();
+  await assert.rejects(pa, /timed out/);
+  assert.equal(JSON.parse(stored).data.done, 400, 'the store keeps the finished wave, not the 300 points of the failed one');
+  assert.equal((await a.current()).done, 400, 'the page that failed draws the other\'s points');
+  assert.match(a.lastError.message, /timed out/, 'and still says its own wave failed');
+});
+
+test('a refusal borrowed from the store clears once the page that was refused succeeds', async () => {
+  let t = 12_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  let fail = true;
+  const fetchJson = async (u) => { if (fail) throw new HttpError(429, 'api.open-meteo.com answered HTTP 429: {"reason":"Daily API request limit exceeded. Please try again tomorrow.","error":true}'); return fakeJson([])(u); };
+  const a = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson });
+  await assert.rejects(a.current(), /Daily/);
+  const b = createGridLoader({ url: 'https://meteo.test', now: () => t, store, fetchJson: fakeJson([]) });
+  t += 10_000;
+  await assert.rejects(b.current(), /Daily/, 'the second page says why there is nothing to draw');
+  fail = false;
+  t += 3_600_000;
+  assert.equal((await a.current()).done, 400);
+  t += 15_000;
+  assert.equal((await b.current()).done, 400);
+  assert.equal(b.lastError, null, 'the borrowed refusal is gone');
+});
+
+test('the budget is shared even between pages on different grid spacings', async () => {
+  let t = 13_000_000;
+  let stored = null;
+  const store = { load: () => (stored ? JSON.parse(stored) : null), save: (g) => { stored = JSON.stringify(g); } };
+  const a = createGridLoader({ url: 'https://meteo.test', gridDeg: 10, now: () => t, store, fetchJson: fakeJson([]) });
+  await a.current();
+  const callsB = [];
+  const b = createGridLoader({ url: 'https://meteo.test', gridDeg: 20, now: () => t, store, fetchJson: fakeJson(callsB) });
+  t += 2_000;
+  await assert.rejects(b.current(), /next wave/);
+  assert.equal(callsB.length, 0, 'the 10° page used this minute');
+  t += 60_000;
+  assert.ok((await b.current()).done > 0, 'the 20° page buys its own grid the next minute');
 });
 
 test('a refusal is shared through storage too: a second tab waits out the limit instead of asking again', async () => {
