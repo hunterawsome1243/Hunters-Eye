@@ -60,6 +60,8 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   let grid = null; // the grid: { at, updated, grid, fields, partial, refreshMs, stale, via? }
   let gridError = '';
   let direct = null; // this browser's own loader, from /api/config, for when the server's address is used up
+  let lastAnswer = null; // the server's last answer, reused until serverAgain
+  let serverAgain = 0; // the server said it would not ask Open-Meteo before this, so there is nothing new to ask it for
   let loading = null;
   let painted = ''; // which field the map's image source currently shows
   let image = { key: '', url: '' }; // the last field painted, as a PNG; a style reload reuses it instead of painting again
@@ -111,12 +113,18 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     if (loading) return loading;
     loading = (async () => {
       let answer;
-      try {
-        const res = await fetchImpl('/api/overlays/weather');
-        const data = await res.json().catch(() => ({}));
-        answer = res.ok ? data : { done: 0, error: (data.error || `HTTP ${res.status}`).replace(/^Weather grid unavailable: /, ''), retryInMs: data.retryInMs ?? 0 };
-      } catch (err) {
-        answer = { done: 0, error: err.message, retryInMs: 0 };
+      if (lastAnswer && Date.now() < serverAgain) {
+        answer = lastAnswer;
+      } else {
+        try {
+          const res = await fetchImpl('/api/overlays/weather');
+          const data = await res.json().catch(() => ({}));
+          answer = res.ok ? data : { done: 0, error: (data.error || `HTTP ${res.status}`).replace(/^Weather grid unavailable: /, ''), retryInMs: data.retryInMs ?? 0 };
+        } catch (err) {
+          answer = { done: 0, error: err.message, retryInMs: 0 };
+        }
+        lastAnswer = answer;
+        serverAgain = Date.now() + (answer.retryInMs ?? 0);
       }
       try {
         if (direct && serverOut(answer)) {
@@ -150,9 +158,6 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     })();
     return loading;
   }
-  // While a field shows, ask again once the grid is older than its refresh. The
-  // server sends a grid in waves a minute apart (the poles last), so a partial
-  // grid is asked for again every few seconds until it is whole.
   // fetch for the shared loader, in the shape server/lib/http.js gives it: the
   // status and a line of the body on a refusal; a long pause after a network
   // failure, since a site that refuses other web pages' requests will not change
@@ -174,6 +179,9 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     }
     return res.json();
   }
+  // While a field shows, ask again once the grid is older than its refresh. The
+  // server sends a grid in waves a minute apart (the poles last), so a partial
+  // grid is asked for again every few seconds until it is whole.
   function scheduleWeather() {
     clearTimeout(weatherTimer);
     if (!state.weather) return;
