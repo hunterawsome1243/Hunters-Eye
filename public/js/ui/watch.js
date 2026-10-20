@@ -17,16 +17,22 @@ function storage() {
   }
 }
 
+// Lower case, and "M 6" written "m6" on both sides, so "M6" and "m 6.1" read the same.
+const norm = (s) => s.toLowerCase().replace(/\bm\s+(?=\d)/g, 'm');
+
 // Pure, so test/watch.test.js can exercise it: does this entry trip this rule?
 // `here` is the marker position ({ lat, lon }) or null; a distance rule without one never fires.
+// A keyword like "M6", "M6.5" or "M6+" is a magnitude: that or stronger.
 export function matches(rule, entry, here = null) {
   if (!rule || entry.system) return false;
-  const keyword = (rule.keyword ?? '').trim().toLowerCase();
+  const keyword = norm((rule.keyword ?? '').trim());
   const km = Number(rule.km);
   if (!keyword && !(km > 0)) return false;
-  if (keyword) {
-    const text = `${entry.title ?? ''} ${entry.subtitle ?? ''}`.toLowerCase();
-    if (!text.includes(keyword)) return false;
+  const mag = keyword.match(/^m(\d+(?:\.\d+)?)\+?$/);
+  if (mag && typeof entry.mag === 'number') {
+    if (entry.mag < Number(mag[1])) return false;
+  } else if (keyword) {
+    if (!norm(`${entry.title ?? ''} ${entry.subtitle ?? ''}`).includes(keyword)) return false;
   }
   if (km > 0) {
     if (!here || !entry.latlng) return false;
@@ -140,6 +146,8 @@ export function createWatch(root, { here = () => null, onHit = () => {}, notifie
       onHit(entry, rule);
       return true;
     },
+    // Would any rule have caught this entry (a revision's earlier version)?
+    matchesAny: (entry) => rules.some((r) => matches(r, entry, here())),
     rules: () => rules.map(({ keyword, km }) => ({ keyword, km })),
     refresh: renderHint,
   };

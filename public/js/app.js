@@ -28,7 +28,9 @@ const feed = createFeed(document.getElementById('feed'), document.getElementById
   // Ambient: the newest significant event (a strong quake, an Extreme or Severe alert,
   // an emergency squawk) ripples where it landed as its row arrives.
   onArrive: (entry) => entry.latlng && ripple(entry.latlng, entry.color, entry.radius, { arrive: true }),
-  onNew: (entry) => watch.check(entry),
+  // A revision (or a late position) is checked only when this item was never a hit and
+  // no rule matched its previous version, so one item notifies at most once.
+  onNew: (entry, prior) => !entry.watched && !(prior && watch.matchesAny(prior)) && watch.check(entry),
   // The proximity feed measures from the "you are here" marker and can ask for one.
   here: () => here?.position() ?? null,
   locate: (opts) => here?.locate(opts) ?? null,

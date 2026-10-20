@@ -45,6 +45,7 @@ const DOTS = 'he-earthquakes';
 export default function create(ctx) {
   const { map, feed, detail } = ctx;
   const quakes = new Map(); // id -> quake
+  const rows = new Map(); // id -> the entry handed to the feed, so its age colour can move on
   let minMag = 2.5;
   let selected = null;
   let last = EMPTY; // the FeatureCollection currently pushed to the source
@@ -136,12 +137,14 @@ export default function create(ctx) {
     for (const q of fresh) {
       seen.add(q.id);
       const existing = quakes.get(q.id);
-      const prevMag = existing?.mag;
       quakes.set(q.id, q);
-      if (!existing || prevMag !== q.mag) {
-        feed.add({
+      // A revision of anything the row shows (USGS moves from automatic to reviewed
+      // solutions) replaces the row.
+      if (!existing || ['mag', 'place', 'depth', 'lat', 'lon'].some((k) => existing[k] !== q[k])) {
+        const row = {
           id: `earthquakes:${q.id}`,
           replace: true,
+          owned: true, // removed below when it leaves the USGS feed, so never capped
           source: 'earthquakes',
           time: q.time,
           mag: q.mag,
@@ -152,12 +155,15 @@ export default function create(ctx) {
           title: `M ${num(q.mag, 1)} earthquake`,
           subtitle: `${q.place || latLon(q.lat, q.lon)} · ${num(q.depth, 0)} km deep`,
           onClick: () => focus(q.id),
-        });
+        };
+        rows.set(q.id, row);
+        feed.add(row);
       }
     }
     for (const id of [...quakes.keys()]) {
       if (seen.has(id)) continue;
       quakes.delete(id);
+      rows.delete(id);
       feed.remove(`earthquakes:${id}`);
       if (id === selected) {
         setSelectedState(id, false);
@@ -168,14 +174,27 @@ export default function create(ctx) {
     if (selected !== null && quakes.has(selected) && detail.key === `earthquakes:${selected}`) showDetail(quakes.get(selected));
   }
 
-  // Ages move on even without new data, so re-bucket every minute. Nothing to do
-  // while the tab is hidden or the layer is off; catch up as soon as the tab is back.
+  // Ages move on even without new data, so re-bucket every minute, the feed's swatches
+  // with the map. Nothing to do while the tab is hidden or the layer is off; catch up as
+  // soon as the tab is back.
+  function age() {
+    render();
+    let moved = false;
+    for (const [id, row] of rows) {
+      const color = ageColor(quakes.get(id).time);
+      if (row.color !== color) {
+        row.color = color;
+        moved = true;
+      }
+    }
+    if (moved) feed.refresh();
+  }
   setInterval(() => {
     if (document.hidden || !api.visible || !quakes.size) return;
-    render();
+    age();
   }, 60_000);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && api.visible && quakes.size) render();
+    if (!document.hidden && api.visible && quakes.size) age();
   });
 
   // Runs after every style load: everything the style forgot is added again, the
