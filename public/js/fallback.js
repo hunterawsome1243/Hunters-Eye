@@ -191,9 +191,10 @@ const SOURCES = { aircraft: aircraftSource, satellites: satellitesSource };
 
 // Runs one source in the browser and keeps a status shaped like the server's.
 class Runner {
-  constructor(impl, provider, { onData, onChange, now }) {
-    Object.assign(this, { impl, provider, onData, onChange, now });
+  constructor(impl, provider, { onData, onChange, now, awake }) {
+    Object.assign(this, { impl, provider, onData, onChange, now, awake });
     this.active = false;
+    this.parked = false; // a fetch came due while the page was asleep (a hidden tab)
     this.generation = 0;
     this.timer = null;
     this.serverError = null;
@@ -224,6 +225,11 @@ class Runner {
   }
 
   async run() {
+    if (!this.awake()) {
+      this.parked = true;
+      this.state.nextAt = null;
+      return;
+    }
     const gen = this.generation;
     const defer = this.impl.deferMs?.(!!this.state.updatedAt) ?? 0;
     if (defer > 0) {
@@ -274,10 +280,13 @@ class Runner {
 
 // urls: { sourceId: providerUrl } from /api/config. onData(id, data) gets data in
 // the same shape as /api/sources/<id>; onChange() fires after each browser fetch.
+// While awake() is false (a hidden tab nobody needs data in) a fetch that comes due
+// waits, so the visitor's own OpenSky credits aren't spent on it; wake() catches up.
 export function createFallbacks(urls = {}, {
   onData,
   onChange = () => {},
   options = () => ({}),
+  awake = () => true,
   fetch: fetchFn = (...args) => globalThis.fetch(...args),
   store = browserStore(),
   now = Date.now,
@@ -286,7 +295,7 @@ export function createFallbacks(urls = {}, {
   for (const [id, url] of Object.entries(urls)) {
     if (!SOURCES[id] || !url) continue;
     const impl = SOURCES[id](url, { fetch: fetchFn, store, now, options: () => options(id) });
-    runners.set(id, new Runner(impl, PROVIDERS[id], { onData, onChange, now }));
+    runners.set(id, new Runner(impl, PROVIDERS[id], { onData, onChange, now, awake }));
   }
 
   return {
@@ -308,6 +317,13 @@ export function createFallbacks(urls = {}, {
     },
     stop() {
       for (const r of runners.values()) r.stop();
+    },
+    wake() {
+      for (const r of runners.values()) {
+        if (!r.active || !r.parked) continue;
+        r.parked = false;
+        r.schedule(0); // still inside the shared budget: deferMs holds it to the next slot
+      }
     },
   };
 }

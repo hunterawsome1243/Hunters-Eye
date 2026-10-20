@@ -293,6 +293,33 @@ test('a replacement whose first wave failed is started afresh, so the new grid i
   assert.equal(calls.length, 14);
 });
 
+test('a replacement left half-done for hours is started over, not finished with hours-old points', async () => {
+  let t = 6_000_000;
+  const calls = [];
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  const loader = createGridLoader({ url: 'https://meteo.test', now: () => t, fetchJson: fakeJson(calls) });
+  await loader.current();
+  t += 61_000;
+  await loader.current();
+  await settle();
+  assert.equal((await loader.current()).partial, false);
+  t += 121 * 60_000; // stale: the replacement's first wave goes out, then everyone leaves
+  await loader.current();
+  await settle();
+  const before = calls.length;
+  t += 180 * 60_000; // the next visitor
+  const restart = t;
+  assert.equal((await loader.current()).at, 6_000_000, 'the old whole grid is still what goes out meanwhile');
+  await settle();
+  t += 61_000;
+  await loader.current();
+  await settle();
+  const served = await loader.current();
+  assert.equal(served.partial, false);
+  assert.equal(served.at, restart, 'dated from the restart, with no points from three hours ago');
+  assert.equal(calls.length - before, 7, 'one full grid bought for the restart, nothing thrown away');
+});
+
 test('the browser keeps its grid in storage: a reload or a second tab starts from it instead of buying it again', async () => {
   let t = 2_000_000;
   let stored = null;

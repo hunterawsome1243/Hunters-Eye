@@ -109,3 +109,44 @@ test('the chain moves on when a service refuses, and says so when every one is r
     close();
   }
 });
+
+test('a failure is never kept by the browser, so Try again asks the server once its minute is up', async () => {
+  let ok = false;
+  let t = 0;
+  const fetchImpl = async () => (ok ? { ok: true, json: async () => ({ latitude: 51.5, longitude: -0.1, city: 'London' }) } : { ok: false, status: 503 });
+  const { base, close } = await serve({ whereami: createWhereamiRoute({ url: 'https://geo.example/{ip}', fetchImpl, now: () => t }) });
+  try {
+    const failed = await fetch(`${base}/api/whereami`);
+    assert.equal(failed.status, 502);
+    assert.equal(failed.headers.get('cache-control'), 'no-store');
+    ok = true;
+    t = 61_000;
+    const placed = await fetch(`${base}/api/whereami`);
+    assert.equal(placed.status, 200);
+    assert.equal(placed.headers.get('cache-control'), 'private, max-age=3600');
+  } finally {
+    close();
+  }
+});
+
+test('requests for an address already being looked up share that lookup, and fresh lookups are capped a minute', async () => {
+  const calls = [];
+  let t = 0;
+  const fetchImpl = async (u) => {
+    calls.push(u);
+    await new Promise((r) => setTimeout(r, 30));
+    return { ok: true, json: async () => ({ latitude: 39.7, longitude: -104.9, city: 'Denver' }) };
+  };
+  const route = createWhereamiRoute({ url: 'https://geo.example/{ip}', fetchImpl, now: () => t });
+  const same = await Promise.all(Array.from({ length: 30 }, () => route.lookup('203.0.113.7')));
+  assert.equal(calls.length, 1);
+  assert.ok(same.every((p) => p.place === 'Denver'));
+  const many = await Promise.allSettled(Array.from({ length: 70 }, (_, i) => route.lookup(`198.51.100.${i + 1}`)));
+  assert.equal(calls.length, 60, 'the first lookup and 59 more this minute');
+  const refused = many.filter((r) => r.status === 'rejected');
+  assert.equal(refused.length, 11);
+  assert.ok(refused.every((r) => r.reason.rateLimited));
+  t = 61_000;
+  await route.lookup('198.51.100.70'); // refused ones are not remembered as failures
+  assert.equal(calls.length, 61);
+});

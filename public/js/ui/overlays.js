@@ -196,7 +196,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   // grid is asked for again every few seconds until it is whole.
   function scheduleWeather() {
     clearTimeout(weatherTimer);
-    if (!state.weather) return;
+    if (!state.weather || globalThis.document?.hidden) return; // a hidden tab picks up when shown
     let wait = 60_000;
     if (grid?.partial) wait = gridError ? 60_000 : 15_000;
     else if (grid) wait = Math.max(30_000, grid.refreshMs - (Date.now() - grid.at));
@@ -515,6 +515,14 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
       closeMenu(); // focus moves to the button first
     });
     window.addEventListener('resize', () => open && placePopover());
+    // Hidden, the refresh waits; shown, a grid that fell due meanwhile is asked for at
+    // once (a fresh wait on every show would starve a tab glanced at for seconds).
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return clearTimeout(weatherTimer);
+      const due = !grid || grid.partial || Date.now() - grid.at >= grid.refreshMs;
+      if (state.weather && due) loadGrid().then(scheduleWeather);
+      else scheduleWeather();
+    });
   }
 
   // The map control: the button, and the legend strip under it.

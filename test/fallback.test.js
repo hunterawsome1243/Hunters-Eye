@@ -166,3 +166,23 @@ test('createFallbacks says plainly when the browser is blocked too', async () =>
     console.warn = warn;
   }
 });
+
+test('a hidden tab\'s browser fallback waits for the page to wake instead of spending credits', async () => {
+  let awake = false;
+  const received = [];
+  const fetchFn = fakeFetch(celestrakOk);
+  const fb = createFallbacks({ satellites: 'https://celestrak.test/gp.php' }, { onData: (id, data) => received.push(id), fetch: fetchFn, store: memoryStore(), awake: () => awake });
+  const failed = { id: 'satellites', ok: false, loading: false, error: 'timed out', note: null, count: 0, updatedAt: null, nextAt: null, intervalMs: 1000 };
+  fb.status(failed);
+  await sleep(20);
+  assert.equal(fetchFn.calls.length, 0, 'nothing fetched while asleep');
+  fb.wake(); // still asleep: stays parked
+  await sleep(20);
+  assert.equal(fetchFn.calls.length, 0);
+  awake = true;
+  fb.wake();
+  await sleep(50);
+  assert.ok(fetchFn.calls.length > 0, 'fetched once awake');
+  assert.deepEqual(received, ['satellites']);
+  fb.stop();
+});
