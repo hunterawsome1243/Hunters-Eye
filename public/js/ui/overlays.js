@@ -126,8 +126,8 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
           const res = await fetchImpl('/api/overlays/weather');
           const data = await res.json().catch(() => ({}));
           answer = res.ok ? data : { done: 0, error: (data.error || `HTTP ${res.status}`).replace(/^Weather grid unavailable: /, ''), retryInMs: data.retryInMs ?? 0 };
-        } catch (err) {
-          answer = { done: 0, error: err.message, retryInMs: 0 };
+        } catch {
+          answer = { done: 0, error: "can't reach the server", retryInMs: 0 }; // not the browser's "Failed to fetch"
         }
         lastAnswer = answer;
         serverAgain = Date.now() + (answer.retryInMs ?? 0);

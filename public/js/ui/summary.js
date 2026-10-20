@@ -131,8 +131,9 @@ export function createSummary(root, layers, { onToggle }) {
       else if (s.error && !s.updatedAt) c.ago.textContent = 'failed';
       else if (st === 'stale') c.ago.textContent = `stale · ${timeAgo(s.updatedAt, now).replace(/ ago$/, '')}`;
       else c.ago.textContent = timeAgo(s.updatedAt, now);
-      // The browser is fetching this source itself because the server can't (fallback.js).
-      if (s?.via === 'browser' && !serverDown) c.ago.textContent += ' · via browser';
+      // The browser is fetching this source itself because the server can't (fallback.js);
+      // when its own request failed too and it has nothing, the chip just says failed.
+      if (s?.via === 'browser' && !serverDown && (s.updatedAt || !s.error)) c.ago.textContent += ' · via browser';
 
       const lines = [`${layer.name} (${layer.source})`];
       if (serverDown) lines.push('Cannot reach the local server.');

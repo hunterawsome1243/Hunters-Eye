@@ -1,5 +1,5 @@
 import * as maplibregl from 'maplibre-gl';
-import { el } from './format.js';
+import { el, placeError } from './format.js';
 
 // "You are here": a button by the zoom controls that asks the server where the
 // visitor is (GET /api/whereami, from their address, city accuracy), drops a marker
@@ -29,6 +29,8 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   let marker = null;
   let busy = false;
   let button = null;
+  let note = null; // a pressed crosshair's failure, beside the button for a few seconds
+  let noteTimer = 0;
   let error = ''; // the last lookup's failure, for the proximity feed's empty state
 
   function remember(p) {
@@ -116,10 +118,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     } catch (err) {
       error = err.message;
       console.warn('Where am I:', err.message);
-      if (button) {
-        button.title = `Could not place you: ${err.message}`;
-        setTimeout(() => { button.title = position ? TITLE_SET : TITLE; }, 6000);
-      }
+      onChange(position); // the proximity feed's empty state shows the new reason
       return null;
     } finally {
       busy = false;
@@ -127,13 +126,23 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     }
   }
 
-  function toggle() {
+  // The note is a live region that stays in the page; its bubble is added and
+  // removed, so a screen reader reads each failure, the same one again included.
+  function tell(text) {
+    clearTimeout(noteTimer);
+    note?.replaceChildren(...(text ? [el('p', { class: 'he-here-msg' }, text)] : []));
+    if (text) noteTimer = setTimeout(() => tell(''), 10_000);
+  }
+
+  async function toggle() {
     if (position) {
       remember(null);
       place(null);
-    } else {
-      locate({ browser: true });
+      return;
     }
+    tell('');
+    const p = await locate({ browser: true });
+    if (!p && !busy && error) tell(placeError(error)); // busy: another lookup is still running
   }
 
   const TITLE = 'Place yourself on the globe (your browser asks first; your network address is the fallback)';
@@ -141,17 +150,20 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   // The map control: one button next to the zoom group, pressed while the marker shows.
   const control = {
     onAdd() {
-      this.el = el('div', { class: 'maplibregl-ctrl maplibregl-ctrl-group he-ctrl-here-group' });
+      this.el = el('div', { class: 'maplibregl-ctrl he-here' });
       button = el('button', { type: 'button', class: 'he-ctrl-here', title: position ? TITLE_SET : TITLE, 'aria-label': 'Show where you are', 'aria-pressed': String(!!position) });
       button.innerHTML = ICON;
       button.addEventListener('click', toggle);
-      this.el.append(button);
+      note = el('div', { class: 'he-here-note', role: 'status' });
+      this.el.append(el('div', { class: 'maplibregl-ctrl-group' }, button), note);
       this.el.hidden = true; // until configure() says the server can look addresses up
       return this.el;
     },
     onRemove() {
       this.el?.remove();
+      clearTimeout(noteTimer);
       button = null;
+      note = null;
     },
   };
 

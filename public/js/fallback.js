@@ -268,7 +268,9 @@ class Runner {
       loading: !st.error && !st.updatedAt,
       waiting: this.waiting && !st.error && !st.updatedAt, // only a budget slot is outstanding
       error: st.error ? `The server can't reach ${this.provider}, and your browser's request failed too: ${st.error}` : null,
-      note: [st.note, `Loaded by your browser because ${why}.`].filter(Boolean).join(' '),
+      // Only data the browser actually got is "loaded by your browser".
+      note: st.updatedAt ? [st.note, `Loaded by your browser because ${why}.`].filter(Boolean).join(' ')
+        : `Your browser ${st.error ? 'tried' : 'is trying'} because ${why}.`,
       count: st.count,
       updatedAt: st.updatedAt,
       nextAt: st.nextAt,

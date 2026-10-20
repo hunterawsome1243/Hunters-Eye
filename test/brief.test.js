@@ -46,6 +46,26 @@ test('the throttle enforces a gap and an hourly cap', () => {
   assert.ok(th.take().ok);
 });
 
+test('the throttle names what it limits and keeps a share of the hour for other addresses', () => {
+  let t = 0;
+  const th = createThrottle({ minGapMs: 1000, perHour: 4, noun: 'description', now: () => t });
+  assert.equal(th.take('a').ok, true);
+  assert.equal(th.take('b').reason, 'A description was just written; try again in a few seconds.');
+  for (const at of [1000, 2000]) {
+    t = at;
+    assert.equal(th.take('a').ok, true);
+  }
+  t = 3000;
+  const mine = th.take('a'); // three of the hour's four is one address's share
+  assert.equal(mine.ok, false);
+  assert.equal(mine.reason, 'Each visitor gets 3 descriptions an hour. You can ask again in 60 min.');
+  assert.equal(th.take('b').ok, true); // someone else still can
+  t = 4000;
+  assert.equal(th.take('c').reason, 'The hourly limit of 4 descriptions is used up. Try again in 60 min.');
+  t = 3_600_500; // a's first press has aged out
+  assert.equal(th.take('a').ok, true);
+});
+
 test('without a key the route is off and config says so', async () => {
   const { base, close } = await serve(createBriefRoute({ apiKey: '' }));
   try {

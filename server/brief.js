@@ -46,19 +46,38 @@ export function estimateCost(model, usage) {
   return ((usage.input_tokens ?? 0) * p.input + (usage.output_tokens ?? 0) * p.output) / 1e6;
 }
 
-// A small token bucket so a public page can't run up a bill: one brief every
-// `minGapMs`, at most `perHour` an hour, across all visitors.
-export function createThrottle({ minGapMs = 5000, perHour = 20, now = Date.now } = {}) {
+// A small token bucket so a public page can't run up a bill: one `noun` every
+// `minGapMs`, at most `perHour` an hour across all visitors, and at most
+// `perAddress` (three quarters of that) from any one address, so a single visitor
+// can't use up the hour for everyone. Per-address stamps are kept for the last
+// MAX_ADDRESSES addresses only, and for an hour at most.
+const MAX_ADDRESSES = 1000;
+export function createThrottle({ minGapMs = 5000, perHour = 20, perAddress = Math.ceil(perHour * 0.75), noun = 'brief', now = Date.now } = {}) {
   let last = -Infinity;
   let stamps = [];
+  const byAddress = new Map(); // address -> start times this hour, least recently used first
+  const minutes = (ms) => `${Math.max(1, Math.ceil(ms / 60_000))} min`;
   return {
-    take() {
+    take(address = '') {
       const t = now();
-      stamps = stamps.filter((s) => t - s < 3_600_000);
-      if (t - last < minGapMs) return { ok: false, retryAfterMs: minGapMs - (t - last), reason: 'A brief was just written; try again in a few seconds.' };
-      if (stamps.length >= perHour) return { ok: false, retryAfterMs: 3_600_000 - (t - stamps[0]), reason: `The hourly limit of ${perHour} briefs is used up.` };
+      const thisHour = (s) => t - s < 3_600_000;
+      stamps = stamps.filter(thisHour);
+      const mine = (byAddress.get(address) ?? []).filter(thisHour);
+      if (t - last < minGapMs) return { ok: false, retryAfterMs: minGapMs - (t - last), reason: `A ${noun} was just written; try again in a few seconds.` };
+      if (stamps.length >= perHour) {
+        const wait = 3_600_000 - (t - stamps[0]);
+        return { ok: false, retryAfterMs: wait, reason: `The hourly limit of ${perHour} ${noun}s is used up. Try again in ${minutes(wait)}.` };
+      }
+      if (mine.length >= perAddress) {
+        const wait = 3_600_000 - (t - mine[0]);
+        return { ok: false, retryAfterMs: wait, reason: `Each visitor gets ${perAddress} ${noun}s an hour. You can ask again in ${minutes(wait)}.` };
+      }
       last = t;
       stamps.push(t);
+      mine.push(t);
+      byAddress.delete(address);
+      byAddress.set(address, mine);
+      if (byAddress.size > MAX_ADDRESSES) byAddress.delete(byAddress.keys().next().value);
       return { ok: true };
     },
   };
@@ -92,16 +111,17 @@ export function createClaudeRoute({ name, system, label, messages, sanitize, api
   const run = ask ?? (enabled ? sdkAsk({ apiKey, model, system, label, messages }) : null);
   async function handler(req, res) {
     if (!enabled) return res.status(404).json({ error: `${name} is off: no ANTHROPIC_API_KEY is set on the server.` });
-    const gate = throttle.take();
-    if (!gate.ok) {
-      res.set('Retry-After', String(Math.ceil(gate.retryAfterMs / 1000)));
-      return res.status(429).json({ error: gate.reason });
-    }
+    // A request that would be turned away anyway doesn't take a slot.
     let input;
     try {
       input = sanitize(req.body);
     } catch (err) {
       return res.status(400).json({ error: err.message });
+    }
+    const gate = throttle.take(req.ip);
+    if (!gate.ok) {
+      res.set('Retry-After', String(Math.ceil(gate.retryAfterMs / 1000)));
+      return res.status(429).json({ error: gate.reason });
     }
     try {
       const { text, usage, stopReason } = await run(input);

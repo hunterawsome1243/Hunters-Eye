@@ -391,7 +391,9 @@ export default function create(ctx) {
     fetchOptions: () => ({ bbox: onlyInView ? viewBox() : null }),
     onStatus(s) {
       const every = s.intervalMs >= 60_000 ? `${Math.round(s.intervalMs / 60_000)} min` : `${Math.round(s.intervalMs / 1000)} s`;
-      hint.textContent = `${s.note ? `${s.note.split('.')[0]}.` : ''} Refreshes every ${every}${onlyInView ? '; a smaller view refreshes faster' : ''}.`.trim();
+      // The note's first sentence says what the data covers; a host name's dots are not sentence ends.
+      const covers = s.note && s.updatedAt ? `${s.note.split(/\.(?:\s|$)/)[0]}.` : '';
+      hint.textContent = `${covers} Refreshes every ${every}${onlyInView ? '; a smaller view refreshes faster' : ''}.`.trim();
     },
     acceptsFeed(entry) {
       if (!onlyInView) return true;

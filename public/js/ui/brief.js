@@ -1,4 +1,4 @@
-import { el, num, timeAgo } from './format.js';
+import { el, num, timeAgo, OFFLINE } from './format.js';
 
 // "Brief me": one button that asks the server for a Claude-written summary of
 // what the dashboard shows right now. The section stays hidden unless
@@ -8,7 +8,10 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
   const button = el('button', { type: 'button', class: 'brief-btn' }, 'Brief me');
   const meta = el('div', { class: 'brief-meta muted' });
   const output = el('p', { class: 'brief-text' });
-  const body = el('div', { class: 'brief-body', role: 'status', 'aria-live': 'polite' }, output, meta);
+  // A failed press says why on its own line and leaves the last brief in place.
+  const failure = el('p', { class: 'brief-text error' });
+  failure.hidden = true;
+  const body = el('div', { class: 'brief-body', role: 'status', 'aria-live': 'polite' }, failure, output, meta);
   root.append(
     el('h2', {}, 'Situation brief ', el('span', { class: 'muted' }, 'by Claude')),
     el('div', { class: 'brief-row' }, button, el('span', { class: 'brief-hint muted' }, 'A short read of what is on the globe right now. About a thirtieth of a cent per press.')),
@@ -22,22 +25,21 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
     busy = true;
     button.setAttribute('aria-busy', 'true'); // stays enabled so keyboard focus is kept
     button.textContent = 'Writing…';
-    output.classList.remove('error');
+    failure.hidden = true;
     try {
       const res = await fetchImpl('/api/brief', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(snapshot()),
-      });
+      }).catch(() => { throw new Error(OFFLINE); });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       output.textContent = data.text;
       const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : ' · cost not known for this model';
       meta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
     } catch (err) {
-      output.textContent = err.message;
-      output.classList.add('error');
-      meta.textContent = '';
+      failure.textContent = err.message;
+      failure.hidden = false;
     } finally {
       busy = false;
       button.removeAttribute('aria-busy');

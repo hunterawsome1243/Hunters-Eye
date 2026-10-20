@@ -53,3 +53,12 @@ export function el(tag, attrs = {}, ...children) {
   for (const c of children.flat()) if (c != null) node.append(c instanceof Node ? c : String(c));
   return node;
 }
+
+// What a button says when its request never reached the server (fetch rejected:
+// offline, the server restarting, a dropped connection), in place of the browser's
+// own "Failed to fetch" / "Load failed".
+export const OFFLINE = "Can't reach the server. Try again in a moment.";
+
+// A failed "where am I" lookup as one sentence: the server's own reason already
+// starts "Could not place your address…", so it isn't said twice.
+export const placeError = (err) => (/^could not place/i.test(err) ? err : `Could not place you: ${err}`);

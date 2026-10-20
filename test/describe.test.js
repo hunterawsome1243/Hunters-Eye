@@ -85,3 +85,17 @@ test('a follow-up carries the question and the last answer as a short conversati
   const noPrevious = toMessages(sanitizeItem({ kind: 'Aircraft', heading: 'UAL123', question: 'Why?' }));
   assert.deepEqual(noPrevious.map((x) => x.role), ['user', 'user']);
 });
+
+test('a malformed request does not use up a slot, and the throttle speaks of descriptions', async () => {
+  const ask = async () => ({ text: 'A strong quake.', usage: { input_tokens: 1, output_tokens: 1 } });
+  const { base, close } = await serve(createDescribeRoute({ apiKey: 'sk-test', ask })); // the route's own throttle
+  try {
+    assert.equal((await post(base, { kind: 'Earthquake' })).status, 400);
+    assert.equal((await post(base, { kind: 'Earthquake', heading: 'M 6.1' })).status, 200);
+    const next = await post(base, { kind: 'Earthquake', heading: 'M 6.1', question: 'Is it dangerous?', previous: 'A strong quake.' });
+    assert.equal(next.status, 429);
+    assert.equal((await next.json()).error, 'A description was just written; try again in a few seconds.');
+  } finally {
+    close();
+  }
+});
