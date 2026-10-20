@@ -205,20 +205,50 @@ export function createGlobe(container, { phone = false, detail, feed } = {}) {
   }
 
   // --- camera -------------------------------------------------------------------
+  // Where the open detail panel sits over the map, as the one side the camera steps
+  // away from: whichever leaves the largest clear rectangle (above a phone's sheet, left
+  // of the desktop card, below the card on a narrow tablet map, left of a landscape
+  // phone's corner sheet). A pick is centred in that rectangle, not under the panel.
+  // With `centre`, only a panel over the middle of the map counts: a point flown to the
+  // centre of a wide desktop map is already clear of the card.
+  const NONE = { top: 0, right: 0, bottom: 0, left: 0 };
+  function covered({ centre = false } = {}) {
+    const el = detail?.key ? document.getElementById('detail') : null;
+    if (!el || el.hidden) return NONE;
+    const r = el.getBoundingClientRect();
+    const m = map.getContainer().getBoundingClientRect();
+    if (r.right <= m.left || r.left >= m.right || r.bottom <= m.top || r.top >= m.bottom) return NONE;
+    const [cx, cy] = [m.left + m.width / 2, m.top + m.height / 2];
+    if (centre && (cx < r.left - 24 || cx > r.right + 24 || cy < r.top - 24 || cy > r.bottom + 24)) return NONE;
+    const clear = {
+      right: (r.left - m.left) * m.height,
+      left: (m.right - r.right) * m.height,
+      bottom: (r.top - m.top) * m.width,
+      top: (m.bottom - r.bottom) * m.width,
+    };
+    const side = Object.keys(clear).reduce((a, b) => (clear[b] > clear[a] ? b : a));
+    const px = { right: m.right - r.left, left: r.right - m.left, bottom: m.bottom - r.top, top: r.bottom - m.top }[side];
+    return { ...NONE, [side]: px };
+  }
+
   function flyTo({ center, zoom, minZoom = -Infinity, maxZoom = Infinity }) {
     const z = zoom ?? clamp(map.getZoom(), minZoom, maxZoom);
     spin.pause();
-    const lift = phone && detail?.key ? -0.2 * map.getContainer().clientHeight : 0;
-    const to = { center, zoom: z, offset: [0, lift] };
+    const c = covered({ centre: true });
+    const to = { center, zoom: z, offset: [(c.left - c.right) / 2, (c.top - c.bottom) / 2] };
     // Under reduced motion MapLibre's flyTo becomes a jumpTo that drops the offset,
-    // leaving the point under the phone's sheet; its easeTo keeps it (and jumps too).
+    // leaving the point under the panel; its easeTo keeps it (and jumps too).
     if (reduceMotion.matches) map.easeTo(to);
     else map.flyTo({ ...to, duration: 1000, curve: 1.3, speed: 0.9 });
   }
 
   function fitBounds(bounds, { maxZoom = 8, padding = 40 } = {}) {
     spin.pause();
-    map.fitBounds(bounds, { maxZoom, padding, duration: 1000 });
+    let c = covered();
+    // MapLibre won't move at all when the padding leaves no room; fit to the whole map then.
+    const { clientWidth: w, clientHeight: h } = map.getContainer();
+    if (w - 2 * padding - c.left - c.right < 60 || h - 2 * padding - c.top - c.bottom < 60) c = NONE;
+    map.fitBounds(bounds, { maxZoom, padding: { top: padding + c.top, right: padding + c.right, bottom: padding + c.bottom, left: padding + c.left }, duration: 1000 });
   }
 
   // The visible area as { lamin, lomin, lamax, lomax }, or null when more than a
