@@ -17,7 +17,7 @@ const ICONS = {
 };
 
 // Live event feed shared by every layer, newest first.
-// An entry: { id, source, time, title, subtitle, color, system?, kind?, onClick?, replace? }.
+// An entry: { id, source, time, title, subtitle, color, latlng?, system?, kind?, onClick?, replace?, owned? }.
 // isVisible(entry) lets layers hide entries (layer off, below a filter threshold);
 // isCurrent(entry) marks the row whose item the detail panel is showing.
 // Rows keep their DOM nodes between renders: a new one slides in at its place, a
@@ -26,23 +26,29 @@ const ICONS = {
 // after a layer toggle, an entry that landed while a filter hid its row, or a source
 // that lands late in the first load, stay quiet.
 // onArrive(entry) fires for the newest significant entry that lands after the first load.
-// onNew(entry) fires for every non-system entry that lands after the first load (the watchlist).
+// onNew(entry, prior) fires for every non-system entry that lands or is revised after the
+// first load (the watchlist); prior is the entry it replaces, or null.
 // Two views of the same entries: 'live' (newest first) and 'near' (the proximity feed:
 // nearest to the "you are here" marker first, with a distance on every row). here()
 // gives that marker's { lat, lon } or null; locate() asks for one (ui/here.js) and
 // resolves to it or null, and is what the proximity feed's own button calls.
 export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false, onArrive = () => {}, onNew = () => {}, here = () => null, locate = async () => null, locateError = () => '' } = {}) {
   const entries = new Map();
-  const nodes = new Map(); // id -> { li, button, time, dist, entry }
+  const nodes = new Map(); // id -> { li, button, swatch, color, time, dist, entry }
   let renderQueued = false;
   let revealQueued = false;
   let loading = true; // skeleton rows while feeds are still answering (app.js setLoading)
   let settledAt = null; // when the first load finished (app.js settle)
+  let refocus = false; // the list had keyboard focus and a rebuild took it
+  // Added after the first load settled: news, not the backlog.
+  const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
   let mode = 'live';
   let locating = false; // the proximity feed is waiting for a place to measure from
 
+  // Entries a layer removes itself when the item leaves its data (`owned`: quakes,
+  // alerts) are never capped, so an old M6 stays in the feed while it is on the globe.
   function prune(source) {
-    const mine = [...entries.values()].filter((e) => e.source === source).sort((a, b) => b.time - a.time);
+    const mine = [...entries.values()].filter((e) => e.source === source && !e.owned).sort((a, b) => b.time - a.time);
     for (const e of mine.slice(PER_SOURCE_LIMIT)) entries.delete(e.id);
   }
 
@@ -58,8 +64,10 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
   function fill(n, e, now) {
     n.time = el('span', { class: 'time' }, timeAgo(e.time, now));
     n.dist = el('span', { class: 'dist' });
+    n.swatch = swatch(e);
+    n.color = e.color;
     n.button = el('button', { type: 'button', onclick: e.onClick, disabled: !e.onClick, title: e.subtitle || e.title },
-      swatch(e),
+      n.swatch,
       el('span', { class: 'title' }, e.title),
       n.time,
       e.subtitle ? el('span', { class: 'sub' }, e.subtitle) : null,
@@ -86,6 +94,15 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
   function render() {
     renderQueued = false;
     const now = Date.now();
+    // Keyboard focus inside the list (a row, the Find me button) is put back after the
+    // rebuild; a lookup's skeleton has nothing to hold it, so it waits for the next render.
+    refocus ||= listEl.contains(document.activeElement);
+    const takeFocus = () => {
+      const btn = refocus && listEl.querySelector('button:not(:disabled)');
+      if (!btn) return;
+      refocus = false;
+      if (document.activeElement === document.body || !document.activeElement) btn.focus({ preventScroll: true });
+    };
     const near = mode === 'near';
     const you = near ? here() : null;
     const visible = [...entries.values()].filter((e) => e.system || isVisible(e)).sort((a, b) => b.time - a.time);
@@ -112,6 +129,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       } else {
         listEl.replaceChildren(near ? nearEmpty() : el('li', { class: 'feed-empty' }, 'Waiting for events…'));
       }
+      takeFocus();
       return;
     }
     // The first row still in view is the anchor; after the shuffle, scroll so it hasn't moved.
@@ -120,12 +138,13 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     const anchorTop = anchor?.offsetTop;
     // An entry is "new" once, when its row is first built after the first load (not
     // again when a layer toggle or a filter brings the row back).
-    const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
     let arrived = null;
     // One hero: the newest significant entry on show (a strong quake, an Extreme or
     // Severe alert, an emergency squawk), as long as it is less than six hours old.
     // In the proximity feed that is the nearest one, which is the right hero there too.
     const hero = shown.find((e) => e.significant && !e.system && now - e.time < HERO_MAX_AGE_MS) ?? null;
+    // Moving or rebuilding a row drops keyboard focus; note whose row has it to put it back.
+    const focusId = [...nodes].find(([, n]) => n.li.contains(document.activeElement))?.[0];
 
     const lis = shown.map((e) => {
       let n = nodes.get(e.id);
@@ -145,6 +164,10 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         e.shown = true;
       } else {
         n.time.textContent = timeAgo(e.time, now);
+        if (n.color !== e.color && !e.system) { // a quake's age colour moves on
+          n.swatch.style.background = e.color;
+          n.color = e.color;
+        }
       }
       n.dist.textContent = near ? `${num(Math.round(e.km))} km ${e.dir}` : '';
       n.li.classList.toggle('hero', e === hero);
@@ -155,13 +178,18 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       return n.li;
     });
 
-    // Put the rows in order touching only the ones that moved, then drop the rest.
-    listEl.querySelector('.feed-empty')?.remove();
+    // Drop the rows that went, then put the rest in order touching only the ones that
+    // moved (removing first means a row leaving above doesn't shift every row below).
+    const keep = new Set(lis);
+    for (const li of [...listEl.children]) if (!keep.has(li)) li.remove();
     lis.forEach((li, i) => {
       if (listEl.children[i] !== li) listEl.insertBefore(li, listEl.children[i] ?? null);
     });
-    while (listEl.children.length > lis.length) listEl.lastElementChild.remove();
     for (const [id, n] of nodes) if (!n.li.isConnected) nodes.delete(id);
+    const focusBtn = focusId && nodes.get(focusId)?.button;
+    if (focusBtn && document.activeElement !== focusBtn && !focusBtn.disabled) focusBtn.focus({ preventScroll: true });
+    if (!focusBtn) takeFocus();
+    refocus = false;
 
     if (anchor?.isConnected && anchor.offsetTop !== anchorTop) {
       listEl.style.scrollBehavior = 'auto'; // an instant correction, not a smooth scroll
@@ -231,10 +259,31 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       if (prior) {
         entry.replacedAt = now;
         entry.shown = prior.shown; // a revision of a row the reader has seen
+        entry.watched ||= prior.watched;
       }
       entries.set(entry.id, entry);
       prune(entry.source);
-      if (!prior && !entry.system && settledAt !== null && now > settledAt + SETTLE_MS) onNew(entry);
+      // A revision is checked too (a quake revised up past "M6"), unless the item came
+      // with the first load; onNew gets the prior entry so a rule that already matched
+      // it doesn't fire again.
+      if (!entry.system && fresh(entry.addedAt)) onNew(entry, prior ?? null);
+      refresh();
+    },
+    // An entry's position arrives or moves (a weather alert whose zone outlines land a
+    // cycle or two after it): the proximity feed can list it, a distance rule gets its
+    // check, and a significant one placed for the first time still gets its arrival.
+    place(id, latlng) {
+      const e = entries.get(id);
+      if (!e || !latlng || (e.latlng && e.latlng[0] === latlng[0] && e.latlng[1] === latlng[1])) return;
+      const prior = { ...e };
+      e.latlng = latlng;
+      if (!e.system && fresh(e.addedAt)) {
+        onNew(e, prior);
+        if (!prior.latlng) {
+          e.quiet = false; // its row is news when the proximity feed first lists it
+          if (e.shown && e.significant) onArrive(e); // already listed in the live feed: ripple now
+        }
+      }
       refresh();
     },
     remove(id) {

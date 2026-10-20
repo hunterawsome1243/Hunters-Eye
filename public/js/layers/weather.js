@@ -184,11 +184,15 @@ export default function create(ctx) {
         entry.polygonCount = polygons.length;
         entry.feature = polygons.length ? alertFeature(a, polygons) : null;
         changed = true;
+        // Zone outlines often arrive a cycle after the alert: the feed row moves to their
+        // centre, so the proximity feed can list it.
+        if (existing && polygons.length) feed.place(`weather:${a.id}`, centreOf(polygons));
       }
       shapes.set(a.id, entry);
       if (!existing) {
         feed.add({
           id: `weather:${a.id}`,
+          owned: true, // removed above when the alert ends, so never capped
           source: 'weather',
           time: a.sent ?? Date.now(),
           severity: a.severity,
