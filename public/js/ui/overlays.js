@@ -1,7 +1,7 @@
 import * as maplibregl from 'maplibre-gl';
 import { el, latLon, timeAgo } from './format.js';
 import { IMAGE_CORNERS, RAMPS, compass, convert, formatValue, localUnits, nightPolygon, paintField, probe, rampCss, unitLabel } from '../overlays/field.js';
-import { createGridLoader, describeError } from '../../../shared/openmeteo.js';
+import { FIELDS, createGridLoader, describeError } from '../../../shared/openmeteo.js';
 
 // Overlays: an "Overlays" button at the top left of the globe that opens a menu of
 // washes drawn over the planet, under the data. One weather field at a time
@@ -64,7 +64,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   let serverAgain = 0; // the server said it would not ask Open-Meteo before this, so there is nothing new to ask it for
   let loading = null;
   let painted = ''; // which field the map's image source currently shows
-  let image = { key: '', url: '' }; // the last field painted, as a PNG; a style reload reuses it instead of painting again
+  const images = { of: '', urls: new Map() }; // each field painted from the grid version `of`, as a PNG; a switch back or a style reload reuses it
   let menu = null; // the popover's controls, built once so a keyboard user's focus survives a refresh
   let nightTimer = 0;
   let weatherTimer = 0;
@@ -139,7 +139,11 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
         if (direct && (serverOut(answer) || (mine && (answer.stale || answer.partial)))) {
           try {
             const g = await direct.current();
-            grid = { ...g, stale: Date.now() - g.at >= g.refreshMs, via: 'browser' };
+            // A copy of the points as they are now: the loader keeps writing a wave's
+            // answers into its own arrays, and the images painted from this grid are
+            // kept under its `updated`, which has to describe what they show.
+            const fields = Object.fromEntries(FIELDS.map((f) => [f, g.fields[f].slice()]));
+            grid = { ...g, fields, stale: Date.now() - g.at >= g.refreshMs, via: 'browser' };
             gridError = direct.lastError && (grid.partial || grid.stale) ? `last refresh failed (${describeError(direct.lastError)})` : '';
           } catch (err) {
             const both = `${answer.error}; your browser's request failed too (${describeError(err)})`;
@@ -204,22 +208,26 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
   }
 
   // Painting half a million pixels and encoding them takes a noticeable moment on a
-  // phone, so a field is painted once per grid: a style reload (the basemap arriving
-  // at startup) only hands the map the same image again.
+  // phone, so each field is painted once per grid: switching back to a field, or a
+  // style reload (the basemap arriving at startup), hands the map the same image again.
   function paint() {
     if (!state.weather || !grid || !canvas || !ready()) return;
-    const key = `${state.weather}:${grid.updated ?? grid.at}`;
+    const version = String(grid.updated ?? grid.at);
+    const key = `${state.weather}:${version}`;
     if (painted === key) return;
-    if (image.key !== key) {
+    if (images.of !== version) { images.of = version; images.urls.clear(); }
+    let url = images.urls.get(state.weather);
+    if (!url) {
       const ctx2d = canvas.getContext('2d');
       const pixels = ctx2d.createImageData(IMAGE_W, IMAGE_H);
       paintField(grid.grid, grid.fields[state.weather], RAMPS[state.weather], IMAGE_W, IMAGE_H, pixels.data);
       ctx2d.putImageData(pixels, 0, 0);
-      image = { key, url: canvas.toDataURL('image/png') };
+      url = canvas.toDataURL('image/png');
+      images.urls.set(state.weather, url);
     }
     const src = map.getSource(WEATHER_SRC);
-    if (src) src.updateImage({ url: image.url, coordinates: IMAGE_CORNERS });
-    else globe.addSource(WEATHER_SRC, { type: 'image', url: image.url, coordinates: IMAGE_CORNERS });
+    if (src) src.updateImage({ url, coordinates: IMAGE_CORNERS });
+    else globe.addSource(WEATHER_SRC, { type: 'image', url, coordinates: IMAGE_CORNERS });
     addLayer({ id: WEATHER_SRC, type: 'raster', source: WEATHER_SRC, paint: { 'raster-opacity': 0.62, 'raster-resampling': 'linear', 'raster-fade-duration': 300 } });
     painted = key;
   }

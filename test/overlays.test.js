@@ -4,7 +4,7 @@ import { createApp } from '../server/app.js';
 import { STEPS, createOverlaysRoute, fetchOrder, gridPoints, gridSpec, parseBatch } from '../server/overlays.js';
 import { HttpError } from '../server/lib/http.js';
 import { RAMPS, colorAt, compass, convert, formatValue, latOfRow, localUnits, nearestIndex, nightPolygon, paintField, probe, rampCss, sample, subsolarPoint, unitLabel } from '../public/js/overlays/field.js';
-import { firesDay, serverOut } from '../public/js/ui/overlays.js';
+import { createOverlays, firesDay, serverOut } from '../public/js/ui/overlays.js';
 import { backoffMs, createGridLoader, describeError, limitHit } from '../shared/openmeteo.js';
 
 const source = { id: 'earthquakes', name: 'Earthquakes', intervalMs: 60_000, fetch: async () => ({ quakes: [] }) };
@@ -557,6 +557,168 @@ test('the painted image is Mercator from 85°N down, through the ramp', () => {
   assert.equal(px.length, 8 * 4 * 4);
   assert.deepEqual([...px.slice(0, 4)], colorAt(RAMPS.temperature, sample(grid, values, latOfRow(0, 4), -180 + 22.5)));
   assert.ok(px[3] > 0 && px[(3 * 8) * 4 + 3] > 0, 'both polar rows are painted');
+});
+
+test('every painted pixel is the ramp colour of the blended grid value there', () => {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const grids = [gridSpec(10), gridSpec(5), { lat0: -80, lon0: -175, step: 15, rows: 11, cols: 24 }, { lat0: 0, lon0: -180, step: 30, rows: 1, cols: 12 }];
+  for (const grid of grids) {
+    for (const field of Object.keys(RAMPS)) {
+      const { min, max } = RAMPS[field];
+      // missing points, NaN, out-of-range and infinite values; then the same field
+      // cut short, an array with fewer points than the grid
+      const whole = Array.from({ length: grid.rows * grid.cols }, () => {
+        const x = rnd();
+        return x < 0.08 ? null : x < 0.1 ? NaN : x < 0.12 ? Infinity : x < 0.14 ? -Infinity : min - 5 + rnd() * (max - min + 10);
+      });
+      for (const values of [whole, whole.slice(0, Math.floor(whole.length * 0.8))]) {
+        const [w, h] = [61, 37];
+        const px = paintField(grid, values, RAMPS[field], w, h);
+        for (let row = 0; row < h; row++) {
+          for (let col = 0; col < w; col++) {
+            const i = (row * w + col) * 4;
+            const want = colorAt(RAMPS[field], sample(grid, values, latOfRow(row, h), -180 + ((col + 0.5) / w) * 360));
+            assert.deepEqual([...px.subarray(i, i + 4)], [...want], `${field} on the ${grid.step}° grid (${values.length} points), row ${row}, column ${col}`);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('each weather field is painted once per grid: switching back and a style reload reuse it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const encoded = [];
+  const canvas = {
+    getContext: () => ({ createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {} }),
+    toDataURL() { encoded.push(this.field); return `data:image/png;base64,${this.field}`; },
+  };
+  const element = () => ({ setAttribute() {}, addEventListener() {}, append() {}, contains: () => false, querySelector: () => null });
+  const document = { createElement: (tag) => (tag === 'canvas' ? canvas : element()), body: element(), addEventListener() {}, hidden: false };
+  for (const [name, value] of [['document', document], ['window', { addEventListener() {} }]]) {
+    const before = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+    t.after(() => (before ? Object.defineProperty(globalThis, name, before) : delete globalThis[name]));
+  }
+
+  const sources = new Map();
+  const layers = new Set();
+  const shown = [];
+  const map = {
+    on() {},
+    getSource: (id) => sources.get(id),
+    getLayer: (id) => layers.has(id),
+    addLayer: (spec) => layers.add(spec.id),
+    setLayoutProperty() {},
+  };
+  const image = (url) => {
+    shown.push(url.split(',')[1]);
+    return { updateImage: ({ url: next }) => shown.push(next.split(',')[1]) };
+  };
+  let onStyle = null;
+  const globe = {
+    ready: true,
+    onStyle: (fn) => { onStyle = fn; },
+    addSource: (id, spec) => sources.set(id, spec.type === 'image' ? image(spec.url) : spec),
+    addLayer: (spec) => layers.add(spec.id),
+  };
+  const grid = gridSpec(10);
+  const fields = Object.fromEntries(['temperature', 'wind', 'rain', 'clouds', 'windDir'].map((f) => [f, gridPoints(grid).map(([lat]) => lat)]));
+  let version = 1;
+  const fetchImpl = async () => Response.json({ at: 1000, updated: 1000 * version, grid, fields, done: grid.rows * grid.cols, total: grid.rows * grid.cols, partial: false, refreshMs: 0 });
+  const overlays = createOverlays({ map, globe, fetchImpl, locale: 'en-GB' });
+  // paintField writes into the canvas's pixels; note which field each encode was for
+  const set = (weather) => { canvas.field = weather; overlays.set({ weather }); };
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(setImmediate); };
+
+  onStyle();
+  set('temperature');
+  await settle();
+  set('wind');
+  set('temperature');
+  set('wind');
+  assert.deepEqual(encoded, ['temperature', 'wind'], 'each field encoded once');
+  assert.deepEqual(shown, ['temperature', 'wind', 'temperature', 'wind'], 'the map was handed each switch');
+
+  layers.clear();
+  sources.clear();
+  shown.length = 0;
+  onStyle(); // a new basemap style: the image source is added again from the kept PNG
+  assert.deepEqual(encoded, ['temperature', 'wind']);
+  assert.deepEqual(shown, ['wind'], 'the new style was handed the kept image');
+  assert.ok(sources.has('he-overlay-weather') && layers.has('he-overlay-weather'), 'and the layer that shows it');
+
+  version = 2; // the next refresh brings a newer grid: the kept images are for the old one
+  t.mock.timers.tick(30_000);
+  await settle();
+  set('temperature');
+  assert.deepEqual(encoded, ['temperature', 'wind', 'wind', 'temperature']);
+  overlays.set({ weather: null });
+});
+
+test('while the browser builds its own grid, every kept image matches the grid it is filed under', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_760_000_000_000 });
+  const element = () => ({ setAttribute() {}, addEventListener() {}, append() {}, contains: () => false, querySelector: () => null });
+  let pixels = null;
+  const canvas = {
+    getContext: () => ({ createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData: (p) => { pixels = p.data; } }),
+    toDataURL() {
+      let opaque = 0;
+      for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) opaque++;
+      return `data:image/png;base64,${opaque}`; // how much of the planet the image covers
+    },
+  };
+  const document = { createElement: (tag) => (tag === 'canvas' ? canvas : element()), body: element(), addEventListener() {}, hidden: false };
+  for (const [name, value] of [['document', document], ['window', { addEventListener() {} }]]) {
+    const before = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+    t.after(() => (before ? Object.defineProperty(globalThis, name, before) : delete globalThis[name]));
+  }
+  const sources = new Map();
+  const layers = new Set();
+  const shown = [];
+  const map = { on() {}, getSource: (id) => sources.get(id), getLayer: (id) => layers.has(id), addLayer: (spec) => layers.add(spec.id), setLayoutProperty() {} };
+  const image = (url) => {
+    shown.push(Number(url.split(',')[1]));
+    return { updateImage: ({ url: next }) => shown.push(Number(next.split(',')[1])) };
+  };
+  let onStyle = null;
+  const globe = { ready: true, onStyle: (fn) => { onStyle = fn; }, addSource: (id, spec) => sources.set(id, spec.type === 'image' ? image(spec.url) : spec), addLayer: (spec) => layers.add(spec.id) };
+  // The server is out of Open-Meteo's allowance, so the browser fetches the grid,
+  // a wave of 400 points and then the poles; each batch waits for release().
+  const held = [];
+  const fetchImpl = async (url) => {
+    if (url === '/api/overlays/weather') return Response.json({ error: 'daily limit', retryInMs: 3_600_000 }, { status: 503 });
+    const lats = new URL(url).searchParams.get('latitude').split(',');
+    await new Promise((r) => held.push(r));
+    return Response.json(lats.map(() => ({ current: { temperature_2m: 15, wind_speed_10m: 40, wind_direction_10m: 90, precipitation: 1, cloud_cover: 80 } })));
+  };
+  const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(setImmediate); };
+  const release = async () => { while (held.length) { held.shift()(); await settle(); } };
+  const overlays = createOverlays({ map, globe, fetchImpl, locale: 'en-GB' });
+  overlays.configure({ weather: true, browser: { url: 'https://meteo.test/v1/forecast', gridDeg: 10, refreshMin: 60 } });
+  onStyle();
+
+  overlays.set({ weather: 'temperature' });
+  await settle();
+  await release(); // the first wave
+  await settle();
+  const firstWave = shown.at(-1);
+  assert.ok(firstWave > 0, 'the first wave is painted');
+  for (let i = 0; !held.length; i++) { // the polar wave goes out a minute later
+    assert.ok(i < 20, 'the polar wave went out');
+    t.mock.timers.tick(15_000);
+    await settle();
+  }
+  await release(); // its points land while the page still holds the grid it took before them
+  overlays.set({ weather: 'wind' });
+  overlays.set({ weather: 'temperature' });
+  assert.equal(shown.at(-2), shown.at(-1), 'wind and temperature were painted from the same points');
+  t.mock.timers.tick(15_000); // the next look at the grid takes the poles
+  await settle();
+  assert.ok(shown.at(-1) > firstWave, 'and then the whole planet');
+  overlays.set({ weather: null });
 });
 
 test('the Sun is where the almanac puts it, and the night side is the other half', () => {

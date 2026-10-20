@@ -83,15 +83,69 @@ export function latOfRow(row, height) {
 // Corners for the image source: top-left, top-right, bottom-right, bottom-left.
 export const IMAGE_CORNERS = [[-180, MERCATOR_LAT], [180, MERCATOR_LAT], [180, -MERCATOR_LAT], [-180, -MERCATOR_LAT]];
 
-// RGBA pixels (width x height, row 0 at the top) of a field painted through its ramp.
+// RGBA pixels (width x height, row 0 at the top) of a field painted through its ramp:
+// colorAt(ramp, sample(grid, values, lat, lon)) at every pixel's centre, to the
+// byte. Half a million calls of those two allocate a few million small arrays and
+// hold the page for a fifth of a second (longer on a phone), so this is the same
+// sums unrolled, with each column's place between the grid points worked out once.
 export function paintField(grid, values, ramp, width, height, out = new Uint8ClampedArray(width * height * 4)) {
-  for (let row = 0; row < height; row++) {
-    const lat = latOfRow(row, height);
-    for (let col = 0; col < width; col++) {
-      const lon = -180 + ((col + 0.5) / width) * 360;
-      const [r, g, b, a] = colorAt(ramp, sample(grid, values, lat, lon));
-      const i = (row * width + col) * 4;
-      out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = a;
+  const { lat0, lon0, step, rows, cols } = grid;
+  const stops = ramp.stops;
+  const last = stops.length - 1;
+  const left = new Int32Array(width);
+  const right = new Int32Array(width);
+  const across = new Float64Array(width);
+  for (let col = 0; col < width; col++) {
+    const lon = -180 + ((col + 0.5) / width) * 360;
+    const fc = (((lon - lon0) / step) % cols + cols) % cols;
+    left[col] = Math.floor(fc);
+    right[col] = (left[col] + 1) % cols;
+    across[col] = fc - left[col];
+  }
+  for (let row = 0, i = 0; row < height; row++) {
+    const fr = Math.min(Math.max((latOfRow(row, height) - lat0) / step, 0), rows - 1);
+    const r0 = Math.floor(fr);
+    const tr = fr - r0;
+    const below = r0 * cols;
+    const above = Math.min(r0 + 1, rows - 1) * cols;
+    for (let col = 0; col < width; col++, i += 4) {
+      const c0 = left[col];
+      const c1 = right[col];
+      const tc = across[col];
+      let sum = 0;
+      let weight = 0;
+      let w = (1 - tr) * (1 - tc);
+      let v = values[below + c0];
+      if (v != null && w) { sum += v * w; weight += w; }
+      w = (1 - tr) * tc;
+      v = values[below + c1];
+      if (v != null && w) { sum += v * w; weight += w; }
+      w = tr * (1 - tc);
+      v = values[above + c0];
+      if (v != null && w) { sum += v * w; weight += w; }
+      w = tr * tc;
+      v = values[above + c1];
+      if (v != null && w) { sum += v * w; weight += w; }
+      v = sum / weight;
+      if (!weight || Number.isNaN(v)) {
+        out[i] = 0; out[i + 1] = 0; out[i + 2] = 0; out[i + 3] = 0;
+        continue;
+      }
+      let k = 0;
+      while (k <= last && v > stops[k][0]) k++;
+      if (k === 0 || k > last) {
+        const c = stops[k === 0 ? 0 : last][1];
+        out[i] = c[0]; out[i + 1] = c[1]; out[i + 2] = c[2]; out[i + 3] = c[3];
+        continue;
+      }
+      const v0 = stops[k - 1][0];
+      const a = stops[k - 1][1];
+      const b = stops[k][1];
+      const t = (v - v0) / (stops[k][0] - v0);
+      out[i] = Math.round(a[0] + (b[0] - a[0]) * t);
+      out[i + 1] = Math.round(a[1] + (b[1] - a[1]) * t);
+      out[i + 2] = Math.round(a[2] + (b[2] - a[2]) * t);
+      out[i + 3] = Math.round(a[3] + (b[3] - a[3]) * t);
     }
   }
   return out;
