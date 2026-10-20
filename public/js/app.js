@@ -69,6 +69,7 @@ showFeedTab(chosenTab ?? 'near');
 const watch = createWatch(document.getElementById('watch'), { here: () => here?.position() ?? null });
 const detail = createDetailPanel(document.getElementById('detail'), {
   here: () => here?.position() ?? null,
+  familyColor: (key) => byId.get(key.split(':')[0])?.color ?? null,
   onShow: ({ latlng, color, radius }) => {
     feed.refresh({ reveal: true });
     if (latlng) ripple(latlng, color, radius);
@@ -219,17 +220,33 @@ function endSwipe(e) {
 sidebar.addEventListener('pointerup', endSwipe);
 sidebar.addEventListener('pointercancel', endSwipe);
 
-// Filters fold away under the feed; closed to start with where the sidebar is short.
+// Filters fold away under the feed. They are set once, so they start closed where the
+// sidebar is short and, on desktop, from the second visit on, giving the feed the height;
+// opening or closing them by hand is remembered.
+const FILTERS_KEY = 'he.filters';
+const SEEN_KEY = 'he.seen';
 const filtersSection = document.querySelector('.filters-section');
 const filtersToggle = document.getElementById('filters-toggle');
-function setFilters(open) {
+function setFilters(open, { remember = false } = {}) {
   filtersSection.classList.toggle('open', open);
   filtersSection.classList.toggle('closed', !open);
   filtersToggle.setAttribute('aria-expanded', String(open));
+  if (!remember) return;
+  try { localStorage.setItem(FILTERS_KEY, open ? 'open' : 'closed'); } catch { /* private mode or full */ }
 }
-setFilters(!window.matchMedia('(max-width: 760px), (max-height: 500px)').matches);
+{
+  let chosen = null;
+  let seen = false;
+  try {
+    chosen = localStorage.getItem(FILTERS_KEY);
+    seen = localStorage.getItem(SEEN_KEY) === '1';
+    localStorage.setItem(SEEN_KEY, '1');
+  } catch { /* none */ }
+  const short = window.matchMedia('(max-width: 760px), (max-height: 500px)').matches;
+  setFilters(!short && (chosen ? chosen === 'open' : !seen));
+}
 requestAnimationFrame(() => filtersSection.classList.remove('no-anim')); // no fold animation on load
-filtersToggle.addEventListener('click', () => setFilters(filtersSection.classList.contains('closed')));
+filtersToggle.addEventListener('click', () => setFilters(filtersSection.classList.contains('closed'), { remember: true }));
 
 let clockOffset = 0; // server clock minus browser clock, from /api/status
 
