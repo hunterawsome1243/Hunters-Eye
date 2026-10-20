@@ -406,7 +406,28 @@ function showAlertTint() {
   document.body.classList.toggle('alert-live', layers.some((l) => l.urgent && l.visible));
 }
 
+// A hidden tab stops asking, so the server's polling can idle and the browser's own
+// fallback fetches wait too, unless a watch rule needs the data to notify. Showing
+// the tab again catches up at once.
+const awake = () => !document.hidden || watch.rules().length > 0;
+let parked = false;
+document.addEventListener('visibilitychange', () => {
+  if (!awake()) return;
+  fallbacks.wake();
+  if (parked) {
+    parked = false;
+    tick();
+  }
+});
+// While parked, a light /healthz (it wakes no feed) keeps a free host from sleeping
+// (Render: after 15 idle minutes) and losing its caches before the tab comes back.
+setInterval(() => { if (parked) fetch('/healthz', { cache: 'no-store' }).catch(() => {}); }, 10 * 60_000);
+
 async function tick() {
+  if (!awake()) {
+    parked = true;
+    return;
+  }
   let delay = STATUS_POLL_MS;
   try {
     const { sources, serverTime } = await getJson('/api/status');
@@ -440,29 +461,36 @@ window.__huntersEye = {
   watch,
 };
 
-getJson('/api/config')
-  .then(({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig, whereami, overlays: overlaysConfig }) => {
-    if (basemap) globe?.loadBasemap(basemap, imagery);
-    brief.configure(briefConfig);
-    detail.configure(describeConfig);
-    here.configure(!!whereami);
-    overlays.configure(overlaysConfig);
-    // The proximity feed needs a place: without the lookup the tab goes, with it the
-    // feed asks once at start (no fly, so the arrival plays out) unless Live was chosen.
-    if (!whereami) {
-      feedTabs.near.hidden = true;
-      showFeedTab('live');
-    } else if (feed.mode() === 'near' && !here.position()) {
-      feed.locate({ fly: false }).then((p) => { if (!p && !chosenTab) showFeedTab('live'); });
-    }
-    fallbacks = createFallbacks(fallback, {
-      onData: (id, data) => byId.get(id)?.update(data),
-      onChange: () => (lastSources.length || serverDown) && showStatus(),
-      options: (id) => byId.get(id)?.fetchOptions?.() ?? {},
-    });
-  })
-  .catch((err) => {
-    console.warn('No browser fallback:', err.message);
-    if (!chosenTab) showFeedTab('live'); // no server to place the reader: the Live feed is the useful one
-  })
-  .finally(tick);
+// The config is asked for again until it lands: one lost request (a blip, a restart
+// between the page and this call) would otherwise leave the page without its
+// basemap, fallbacks and buttons until a reload. The status loop starts after the
+// first try either way.
+function loadConfig(attempt = 0) {
+  return getJson('/api/config').then(configure).catch((err) => {
+    console.warn('Config not loaded yet:', err.message);
+    if (attempt === 0 && !chosenTab) showFeedTab('live'); // no server to place the reader: the Live feed is the useful one
+    setTimeout(() => loadConfig(attempt + 1), Math.min(60_000, 2000 * 2 ** attempt));
+  });
+}
+function configure({ basemap, imagery, fallback, brief: briefConfig, describe: describeConfig, whereami, overlays: overlaysConfig }) {
+  if (basemap) globe?.loadBasemap(basemap, imagery);
+  brief.configure(briefConfig);
+  detail.configure(describeConfig);
+  here.configure(!!whereami);
+  overlays.configure(overlaysConfig);
+  // The proximity feed needs a place: without the lookup the tab goes, with it the
+  // feed asks once at start (no fly, so the arrival plays out) unless Live was chosen.
+  if (!whereami) {
+    feedTabs.near.hidden = true;
+    showFeedTab('live');
+  } else if (feed.mode() === 'near' && !here.position()) {
+    feed.locate({ fly: false }).then((p) => { if (!p && !chosenTab) showFeedTab('live'); });
+  }
+  fallbacks = createFallbacks(fallback, {
+    onData: (id, data) => byId.get(id)?.update(data),
+    onChange: () => (lastSources.length || serverDown) && showStatus(),
+    options: (id) => byId.get(id)?.fetchOptions?.() ?? {},
+    awake,
+  });
+}
+loadConfig().finally(tick);

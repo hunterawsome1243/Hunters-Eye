@@ -213,9 +213,10 @@ export function createGridLoader({ url, gridDeg, refreshMin, fetchJson, now = Da
     if (!inflight && t >= retryAt && t - waveAt >= WAVE_GAP_MS) {
       // A grid with no points yet is born now, not when it was first wanted (its
       // first wave may have been refused an hour ago); a partial one too old to
-      // finish is started over.
+      // finish is started over, and so is a replacement abandoned that long (its
+      // first wave hours old, it would be served as new and refreshed at once).
       if (data?.partial && (data.done === 0 || !fresh(data, t))) data = emptyGrid(t);
-      if (next && next.done === 0) next = null;
+      if (next && (next.done === 0 || !fresh(next, t))) next = null;
       let g;
       if (data && data.partial) g = data;
       else if (whole(data)) g = next ?? (next = emptyGrid(t));

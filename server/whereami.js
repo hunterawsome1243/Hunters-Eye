@@ -8,7 +8,11 @@
 // city), and caches the answer for an hour per address. A service that refuses
 // (ipwho.is answered HTTP 429 from Render's shared address on the first live day)
 // is skipped for the next one, and a failure of the whole chain is remembered for a
-// minute so reloads do not hammer them. No address is kept beyond the cache.
+// minute so reloads do not hammer them (the browser is told not to keep it, so Try
+// again asks afresh once that minute is up). Requests for an address already being
+// looked up share that lookup, and at most LOOKUPS_PER_MIN fresh lookups go out a
+// minute, so a script or a burst of tabs can't use up the services' free allowances
+// for everyone. No address is kept beyond the cache.
 //
 // WHEREAMI_URL overrides the chain: one or more templates separated by commas,
 // {ip} replaced by the address (an empty value turns the route off). Behind
@@ -20,6 +24,7 @@ const CACHE_TTL_MS = 60 * 60_000;
 const FAIL_TTL_MS = 60_000;
 const CACHE_MAX = 500;
 const PER_SERVICE_MS = 5000;
+const LOOKUPS_PER_MIN = 60;
 const USER_AGENT = 'hunters-eye/0.1 (+https://github.com/hunterawsome1243/Hunters-Eye)';
 
 // Loopback and private ranges (a local run, a container): the service can't place
@@ -63,6 +68,8 @@ export function createWhereamiRoute({ url = process.env.WHEREAMI_URL ?? DEFAULT_
   const urls = String(url ?? '').split(',').map((u) => u.trim()).filter(Boolean);
   const enabled = urls.length > 0;
   const cache = new Map(); // ip -> { at, value } or { at, error }
+  const pending = new Map(); // ip -> the lookup under way for it
+  let started = []; // when the fresh lookups of the last minute began
 
   async function askOne(template, key) {
     const res = await fetchImpl(fillUrl(template, key), { signal: AbortSignal.timeout(PER_SERVICE_MS), headers: { accept: 'application/json', 'user-agent': USER_AGENT } });
@@ -77,6 +84,21 @@ export function createWhereamiRoute({ url = process.env.WHEREAMI_URL ?? DEFAULT_
       if (hit.error) throw hit.error;
       return hit.value;
     }
+    if (pending.has(key)) return pending.get(key);
+    const t = now();
+    started = started.filter((s) => t - s < 60_000);
+    if (started.length >= LOOKUPS_PER_MIN) {
+      const busy = new Error('too many lookups this minute');
+      busy.rateLimited = true;
+      throw busy; // not cached: the next minute is free again
+    }
+    started.push(t);
+    const p = chain(key).finally(() => pending.delete(key));
+    pending.set(key, p);
+    return p;
+  }
+
+  async function chain(key) {
     const failures = [];
     for (const template of urls) {
       try {
@@ -97,11 +119,12 @@ export function createWhereamiRoute({ url = process.env.WHEREAMI_URL ?? DEFAULT_
 
   async function handler(req, res) {
     if (!enabled) return res.status(404).json({ error: 'Location is off: WHEREAMI_URL is empty on the server.' });
-    res.set('Cache-Control', 'private, max-age=3600');
     try {
       const value = await lookup(req.ip);
+      res.set('Cache-Control', 'private, max-age=3600');
       res.json({ ...value, approximate: true });
     } catch (err) {
+      res.set('Cache-Control', 'no-store'); // the server's own minute-long memory is enough
       console.warn('[whereami]', err?.message ?? err);
       const why = err?.rateLimited ? 'the address lookup services are rate-limited right now' : (err?.message ?? String(err));
       res.status(502).json({ error: `Could not place your address: ${why}`, rateLimited: !!err?.rateLimited });

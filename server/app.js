@@ -87,12 +87,22 @@ export function createApp(sources, pollerOptions, {
     res.json({ serverTime: Date.now(), sources: [...pollers.values()].map((p) => p.status()) });
   });
 
+  // A source's data (1-2 MB of aircraft or alert outlines) is turned into JSON once
+  // per version, not once per viewer; only the small status is written per request.
+  // No ETag either: the browser asks with no-store and never revalidates.
+  const bodies = new Map(); // id -> { data, updatedAt, json }
   app.get('/api/sources/:id', (req, res) => {
     const poller = pollers.get(req.params.id);
     if (!poller) return res.status(404).json({ error: `Unknown source "${req.params.id}"` });
     poller.touch();
-    res.set('Cache-Control', 'no-store');
-    res.json({ status: poller.status(), data: poller.data });
+    let b = bodies.get(poller.source.id);
+    if (!b || b.data !== poller.data || b.updatedAt !== poller.updatedAt) {
+      b = { data: poller.data, updatedAt: poller.updatedAt, json: JSON.stringify(poller.data ?? null) };
+      bodies.set(poller.source.id, b);
+    }
+    const body = `{"status":${JSON.stringify(poller.status())},"data":${b.json}}`;
+    res.set({ 'Cache-Control': 'no-store', 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+    res.end(body);
   });
 
   // Lets the browser adjust what a source fetches, e.g. the aircraft bounding box.
