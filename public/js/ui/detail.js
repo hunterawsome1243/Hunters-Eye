@@ -1,20 +1,53 @@
 import { el, num, timeAgo } from './format.js';
 import { bearingDeg, compassPoint, distanceKm } from '../globe/geo.js';
+import { PLANE_PATH } from '../globe/icons.js';
 
 const SHEET = window.matchMedia('(max-width: 760px), (max-height: 500px)');
+
+// The header icon, by the layer named in the key ("aircraft:abc123"), drawn in the item's
+// own colour (age, altitude, severity). Static markup only.
+const svg = (body, box = '0 0 16 16') => `<svg viewBox="${box}">${body}</svg>`;
+const ICONS = {
+  earthquakes: svg('<circle cx="8" cy="8" r="2.75" fill="currentColor"/><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/>'),
+  aircraft: svg(`<path d="${PLANE_PATH}" fill="currentColor"/>`, '-8 -8 16 16'),
+  satellites: svg('<g fill="currentColor" transform="rotate(-35 8 8)"><rect x="6" y="5.25" width="4" height="5.5" rx="0.75"/><rect x="0.5" y="6" width="4.25" height="4" rx="0.5"/><rect x="11.25" y="6" width="4.25" height="4" rx="0.5"/><rect x="4" y="7.6" width="8" height="0.8"/></g>'),
+  weather: svg('<path fill="currentColor" fill-rule="evenodd" d="M8 1.2 15.2 14.3H.8Z M7.1 5.6h1.8l-.35 4.7h-1.1Z M7.1 11.3h1.8v1.6H7.1Z"/>'),
+};
+const SQUARE = svg('<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor"/>');
 
 // The floating panel that shows whatever item was clicked last.
 // A layer calls show() with a key; calling show() again with the same key refreshes
 // it in place (used for moving things like aircraft and satellites). onShow fires
-// only when the key changes, onClose when the panel goes away.
-export function createDetailPanel(root, { onClose, onShow, here = () => null, fetchImpl = fetch } = {}) {
+// only when the key changes, onClose when the panel goes away. familyColor(key) gives the
+// layer's own colour for the kicker.
+export function createDetailPanel(root, { onClose, onShow, here = () => null, familyColor = () => null, fetchImpl = fetch } = {}) {
   const head = root.querySelector('.detail-head');
   const closeBtn = root.querySelector('.detail-close');
-  const swatch = root.querySelector('.detail-swatch');
+  const icon = root.querySelector('.detail-icon');
   const kicker = root.querySelector('.detail-kicker');
   const title = root.querySelector('.detail-title');
   const rows = root.querySelector('.detail-rows');
   const extra = root.querySelector('.detail-extra');
+  // Long notes (an NWS alert's full text) fold at six lines behind "Show more"; the
+  // choice holds while the same item refreshes, and resets for the next one.
+  const notesEl = el('p', { class: 'detail-notes', id: 'detail-notes' });
+  const moreBtn = el('button', { type: 'button', class: 'detail-more', 'aria-controls': 'detail-notes', 'aria-expanded': 'false' }, 'Show more');
+  const linkEl = el('p', { class: 'detail-link' });
+  let notesOpen = false;
+  let shownNotes = null;
+  let shownLayer = null;
+  function fitNotes() {
+    notesEl.classList.add('clamped');
+    const overflows = notesEl.scrollHeight > notesEl.clientHeight + 1;
+    notesEl.classList.toggle('clamped', overflows && !notesOpen);
+    moreBtn.hidden = !overflows;
+    moreBtn.textContent = notesOpen ? 'Show less' : 'Show more';
+    moreBtn.setAttribute('aria-expanded', String(notesOpen));
+  }
+  moreBtn.addEventListener('click', () => {
+    notesOpen = !notesOpen;
+    fitNotes();
+  });
   let currentKey = null;
   let currentItem = null; // what show() was last given, for the Describe button
   let closing = null; // fallback timer while the exit animation plays
@@ -207,7 +240,13 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fe
       currentKey = key;
       currentItem = { kind, heading, fields, notes, link };
       if (changed && describedKey !== key) resetDescribe();
-      swatch.style.background = color;
+      const layer = key.split(':')[0];
+      if (layer !== shownLayer) {
+        icon.innerHTML = ICONS[layer] ?? SQUARE;
+        shownLayer = layer;
+      }
+      icon.style.color = color;
+      kicker.style.color = familyColor(key) || '';
       kicker.textContent = kind;
       title.textContent = heading;
       // With a "you are here" marker set, the last row says how far away this is.
@@ -216,10 +255,22 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fe
         ? [...fields, ['From you', `${num(distanceKm([you.lat, you.lon], latlng))} km`, `to the ${compassPoint(bearingDeg([you.lat, you.lon], latlng))} of ${you.place ? you.place.split(',')[0] : 'you'}`]]
         : fields;
       rows.replaceChildren(...shownFields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
-      extra.replaceChildren();
-      if (notes) extra.append(notes);
-      if (link && /^https?:\/\//.test(link.href)) extra.append(notes ? '\n\n' : '', el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));
+      if (changed) notesOpen = false;
+      // Rebuilt only when something changed, so a refresh never drops keyboard focus.
+      const linked = link && /^https?:\/\//.test(link.href);
+      const a = linkEl.firstElementChild;
+      if (linked && (a?.getAttribute('href') !== link.href || a.textContent !== link.label)) {
+        linkEl.replaceChildren(el('a', { href: link.href, target: '_blank', rel: 'noopener' }, link.label));
+      }
+      const parts = [...(notes ? [notesEl, moreBtn] : []), ...(linked ? [linkEl] : [])];
+      if (parts.length !== extra.children.length || parts.some((n, i) => extra.children[i] !== n)) extra.replaceChildren(...parts);
       root.hidden = false;
+      // Measured once the card is on screen, and again only when the text changes.
+      if (notes && (changed || notes !== shownNotes)) {
+        notesEl.textContent = notes;
+        fitNotes();
+      }
+      shownNotes = notes || null;
       if (changed) {
         root.scrollTop = 0;
         onShow?.({ key, color, latlng, radius });
