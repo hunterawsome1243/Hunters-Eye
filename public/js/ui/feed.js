@@ -1,4 +1,4 @@
-import { el, num, timeAgo } from './format.js';
+import { el, num, placeError, timeAgo } from './format.js';
 import { setText, tweenNumber } from './tween.js';
 import { nearest } from './near.js';
 
@@ -6,8 +6,6 @@ const PER_SOURCE_LIMIT = 300;
 const DISPLAY_LIMIT = 200;
 const SETTLE_MS = 2000; // entries added this long after the first load count as "new"
 const HERO_MAX_AGE_MS = 6 * 3_600_000; // older significant events are history, not the hero
-
-const placeError = (err) => (/^could not place/i.test(err) ? err : `Could not place you: ${err}`);
 
 // Small icons for system rows (feed failed / recovered, imagery switched) in place of a
 // colour dot. The icon takes the row's colour, so error and warn share the "!".

@@ -1,4 +1,4 @@
-import { el, num, timeAgo } from './format.js';
+import { clockTime, el, num, OFFLINE } from './format.js';
 import { bearingDeg, compassPoint, distanceKm } from '../globe/geo.js';
 import { PLANE_PATH } from '../globe/icons.js';
 
@@ -71,6 +71,10 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
   // sent until the button is pressed; a new object clears the last description.
   const describeBtn = el('button', { type: 'button', class: 'brief-btn describe-btn' }, 'Describe');
   const describeText = el('p', { class: 'describe-text' });
+  // A failed press or follow-up says why on its own line, just above the follow-up
+  // box, and leaves the description and the answers so far in place.
+  const describeErr = el('p', { class: 'describe-text error' });
+  describeErr.hidden = true;
   const describeMeta = el('div', { class: 'describe-meta muted' });
   // After a description, a one-line form asks a follow-up about the same object; the
   // answer lands under the question. Only the last answer goes back with the question.
@@ -81,7 +85,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
   askForm.hidden = true;
   const describe = el('div', { class: 'detail-describe', role: 'status', 'aria-live': 'polite' },
     el('div', { class: 'describe-row' }, describeBtn, el('span', { class: 'describe-hint muted' }, 'What this is and why it matters, by Claude.')),
-    describeText, thread, describeMeta, askForm);
+    describeText, thread, describeMeta, describeErr, askForm);
   describe.hidden = true;
   root.append(describe);
   let describing = false;
@@ -91,7 +95,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
     describedKey = null;
     lastAnswer = null;
     describeText.textContent = '';
-    describeText.classList.remove('error');
+    describeErr.hidden = true;
     describeMeta.textContent = '';
     thread.replaceChildren();
     askForm.hidden = true;
@@ -106,7 +110,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
     const busyBtn = question ? askBtn : describeBtn;
     busyBtn.setAttribute('aria-busy', 'true'); // stays enabled so keyboard focus is kept
     busyBtn.textContent = question ? '…' : 'Writing…';
-    describeText.classList.remove('error');
+    describeErr.hidden = true;
     const q = question ? el('p', { class: 'describe-q' }, question) : null;
     if (q) thread.append(q);
     try {
@@ -119,7 +123,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
           fields: fields.filter(([, v]) => v != null && v !== '').map(([label, value, sub]) => ({ label, value: String(value), sub: sub ?? null })),
           question, previous: question ? lastAnswer : null,
         }),
-      });
+      }).catch(() => { throw new Error(OFFLINE); });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       if (key !== currentKey) return; // the user has moved on; don't describe the wrong thing
@@ -128,16 +132,15 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
       if (question) thread.append(el('p', { class: 'describe-a' }, data.text));
       else describeText.textContent = data.text;
       const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : '';
-      describeMeta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
+      describeMeta.textContent = `${data.model || 'Claude'} · written ${clockTime(data.at)}${cost}`;
       askForm.hidden = false;
       askInput.value = '';
     } catch (err) {
       if (key !== currentKey) return;
       q?.remove();
       if (question) askInput.value = question; // keep the question so it can be sent again
-      describeText.textContent = err.message;
-      describeText.classList.add('error');
-      describeMeta.textContent = '';
+      describeErr.textContent = err.message;
+      describeErr.hidden = false;
     } finally {
       describing = false;
       busyBtn.removeAttribute('aria-busy');

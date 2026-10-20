@@ -1,5 +1,5 @@
 import * as maplibregl from 'maplibre-gl';
-import { el } from './format.js';
+import { el, placeError } from './format.js';
 
 // "You are here": a button by the zoom controls that asks the server where the
 // visitor is (GET /api/whereami, from their address, city accuracy), drops a marker
@@ -28,7 +28,11 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   let position = null; // { lat, lon, place, at }
   let marker = null;
   let busy = false;
+  let running = null; // the lookup under way: { browser, fly, done }, so a press during it can wait for it
+  let generation = 0; // a press that removes the marker drops the answer of a lookup still under way
   let button = null;
+  let note = null; // a pressed crosshair's failure, beside the button for a few seconds
+  let noteTimer = 0;
   let error = ''; // the last lookup's failure, for the proximity feed's empty state
 
   function remember(p) {
@@ -46,6 +50,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   }
 
   function place(p) {
+    tell(''); // a marker set or removed makes an earlier failure note stale
     position = p;
     marker?.remove();
     marker = null;
@@ -64,7 +69,7 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
 
   // The server's answer, from the visitor's address.
   async function fromServer() {
-    const res = await fetchImpl('/api/whereami');
+    const res = await fetchImpl('/api/whereami').catch(() => { throw new Error("can't reach the server"); }); // not the browser's "Failed to fetch"
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return { lat: data.lat, lon: data.lon, place: data.place || '', at: Date.now(), source: 'ip' };
@@ -78,7 +83,10 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
       if (!geo) return reject(new Error('this browser has no location'));
       geo.getCurrentPosition(
         ({ coords }) => resolve({ lat: coords.latitude, lon: coords.longitude, place: '', at: Date.now(), source: 'browser' }),
-        (err) => reject(new Error(err.code === 1 ? 'you did not allow the browser to share your location' : err.message || 'browser location failed')),
+        // Over plain http (not localhost) the browser refuses by itself, without asking.
+        (err) => reject(new Error(err.code !== 1 ? err.message || 'browser location failed'
+          : globalThis.isSecureContext === false ? 'the browser only shares its location with https pages'
+            : 'you did not allow the browser to share your location')),
         { timeout: 12_000, maximumAge: 10 * 60_000 },
       );
     });
@@ -89,8 +97,15 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   // but it asks the visitor), and the address is the fallback; so a wrong city from
   // the address can always be corrected by pressing the button. Without the flag
   // (the automatic placement at load) only the address is used: nothing prompts.
-  async function locate({ fly = true, browser = false } = {}) {
-    if (busy) return null;
+  // One lookup at a time: a call while one runs shares it (the same place, or null
+  // and error()), so the feed's Try again during a crosshair lookup reports that one.
+  function locate({ fly = true, browser = false } = {}) {
+    if (busy) return running.done;
+    running = { browser, fly, done: lookup({ fly, browser }) };
+    return running.done;
+  }
+  async function lookup({ fly, browser }) {
+    const mine = generation;
     busy = true;
     button?.setAttribute('aria-busy', 'true');
     try {
@@ -108,18 +123,17 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
           }
         }
       }
+      if (generation !== mine) return null; // the visitor removed the marker meanwhile
       error = '';
       remember(p);
       place(p);
-      if (fly) flyTo?.({ center: [p.lon, p.lat], minZoom: 3, maxZoom: 5 });
+      if (fly) flyHere();
       return p;
     } catch (err) {
+      if (generation !== mine) return null;
       error = err.message;
       console.warn('Where am I:', err.message);
-      if (button) {
-        button.title = `Could not place you: ${err.message}`;
-        setTimeout(() => { button.title = position ? TITLE_SET : TITLE; }, 6000);
-      }
+      onChange(position); // the proximity feed's empty state shows the new reason
       return null;
     } finally {
       busy = false;
@@ -127,13 +141,44 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
     }
   }
 
-  function toggle() {
+  // The note is a live region that stays in the page; its bubble is added and
+  // removed, so a screen reader reads each failure, the same one again included.
+  function tell(text) {
+    clearTimeout(noteTimer);
+    note?.replaceChildren(...(text ? [el('p', { class: 'he-here-msg' }, text)] : []));
+    if (text && note) noteTimer = setTimeout(() => tell(''), 10_000);
+  }
+
+  function flyHere() {
+    if (position) flyTo?.({ center: [position.lon, position.lat], minZoom: 3, maxZoom: 5 });
+  }
+
+  async function toggle() {
     if (position) {
+      generation++;
       remember(null);
       place(null);
-    } else {
-      locate({ browser: true });
+      return;
     }
+    tell('');
+    if (busy) {
+      // A press while a lookup runs waits for it. If that one already asked the
+      // browser (the feed's Find me), its place or its failure is this press's
+      // answer; the address-only one at load is not, so the browser is asked next,
+      // and nor is one whose answer a removal dropped.
+      const prior = running;
+      const got = await prior.done;
+      if (prior.browser && (got || error)) {
+        if (got) {
+          if (!prior.fly) flyHere();
+        } else if (error && !position) {
+          tell(placeError(error));
+        }
+        return;
+      }
+    }
+    const p = await locate({ browser: true });
+    if (!p && error) tell(placeError(error));
   }
 
   const TITLE = 'Place yourself on the globe (your browser asks first; your network address is the fallback)';
@@ -141,17 +186,20 @@ export function createHere({ map, flyTo, fetchImpl = fetch, onChange = () => {} 
   // The map control: one button next to the zoom group, pressed while the marker shows.
   const control = {
     onAdd() {
-      this.el = el('div', { class: 'maplibregl-ctrl maplibregl-ctrl-group he-ctrl-here-group' });
+      this.el = el('div', { class: 'maplibregl-ctrl he-here' });
       button = el('button', { type: 'button', class: 'he-ctrl-here', title: position ? TITLE_SET : TITLE, 'aria-label': 'Show where you are', 'aria-pressed': String(!!position) });
       button.innerHTML = ICON;
       button.addEventListener('click', toggle);
-      this.el.append(button);
+      note = el('div', { class: 'he-here-note', role: 'status' });
+      this.el.append(el('div', { class: 'maplibregl-ctrl-group' }, button), note);
       this.el.hidden = true; // until configure() says the server can look addresses up
       return this.el;
     },
     onRemove() {
       this.el?.remove();
+      clearTimeout(noteTimer);
       button = null;
+      note = null;
     },
   };
 

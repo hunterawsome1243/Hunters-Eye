@@ -1,4 +1,4 @@
-import { createClaudeRoute } from './brief.js';
+import { createClaudeRoute, createThrottle } from './brief.js';
 
 // "Describe": a short plain-language description of one object the user clicked
 // on the globe (a quake, a plane, a satellite, an alert), written by Claude on
@@ -53,5 +53,5 @@ export function sanitizeItem(body) {
 }
 
 export function createDescribeRoute(options = {}) {
-  return createClaudeRoute({ name: 'Descriptions', system: SYSTEM, messages: toMessages, sanitize: sanitizeItem, ...options });
+  return createClaudeRoute({ name: 'Descriptions', system: SYSTEM, messages: toMessages, sanitize: sanitizeItem, throttle: createThrottle({ noun: 'description' }), ...options });
 }
