@@ -109,6 +109,22 @@ test('aircraft fallback backs off for an hour on 429, also across reloads', asyn
   assert.equal(reloaded.deferMs(false), HOUR - 1000);
 });
 
+test('a browser fallback held off by a back-off says it will try, not that it is trying', async () => {
+  const t = Date.now();
+  const store = memoryStore();
+  const fetch = fakeFetch(() => new Response('', { status: 429 }));
+  await assert.rejects(aircraftSource('https://opensky.test/api', { fetch, store, now: () => t, options: () => ({}) }).fetch());
+  const fb = createFallbacks({ aircraft: 'https://opensky.test/api' }, { onData: () => assert.fail('no fetch expected'), fetch, store }); // a reload
+  const failed = { id: 'aircraft', ok: false, loading: false, error: 'timed out', note: null, count: 0, updatedAt: null, nextAt: null, intervalMs: 1000 };
+  fb.status(failed);
+  await sleep(20);
+  const shown = fb.status(failed);
+  assert.equal(fetch.calls.length, 1);
+  assert.equal(shown.waiting, true);
+  assert.equal(shown.note, "Your browser will try because the server can't reach OpenSky (timed out).");
+  fb.stop();
+});
+
 test('createFallbacks stands in only while the server has failed with no data', async () => {
   const received = [];
   let changes = 0;

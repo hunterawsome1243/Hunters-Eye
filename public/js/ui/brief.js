@@ -1,4 +1,4 @@
-import { el, num, timeAgo, OFFLINE } from './format.js';
+import { clockTime, el, num, OFFLINE } from './format.js';
 
 // "Brief me": one button that asks the server for a Claude-written summary of
 // what the dashboard shows right now. The section stays hidden unless
@@ -36,7 +36,7 @@ export function createBrief(root, { snapshot, fetchImpl = fetch } = {}) {
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       output.textContent = data.text;
       const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : ' · cost not known for this model';
-      meta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
+      meta.textContent = `${data.model || 'Claude'} · written ${clockTime(data.at)}${cost}`; // a clock time stays true beside a later failure
     } catch (err) {
       failure.textContent = err.message;
       failure.hidden = false;

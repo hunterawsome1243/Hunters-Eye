@@ -1,4 +1,4 @@
-import { el, num, timeAgo, OFFLINE } from './format.js';
+import { clockTime, el, num, OFFLINE } from './format.js';
 import { bearingDeg, compassPoint, distanceKm } from '../globe/geo.js';
 import { PLANE_PATH } from '../globe/icons.js';
 
@@ -132,7 +132,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
       if (question) thread.append(el('p', { class: 'describe-a' }, data.text));
       else describeText.textContent = data.text;
       const cost = data.costUsd != null ? ` · cost ${data.costUsd < 0.001 ? '<0.1¢' : `${num(data.costUsd * 100, 1)}¢`}` : '';
-      describeMeta.textContent = `${data.model || 'Claude'} · ${timeAgo(data.at)}${cost}`;
+      describeMeta.textContent = `${data.model || 'Claude'} · written ${clockTime(data.at)}${cost}`;
       askForm.hidden = false;
       askInput.value = '';
     } catch (err) {

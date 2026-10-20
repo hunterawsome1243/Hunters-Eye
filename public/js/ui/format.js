@@ -25,6 +25,12 @@ export function dateTime(ms) {
   });
 }
 
+// A clock time, "14:05" or "02:05 PM" by locale, for things that should not read
+// "just now" forever.
+export function clockTime(ms) {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
 export function num(n, digits = 0) {
   if (n == null || Number.isNaN(n)) return '—';
   return Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });

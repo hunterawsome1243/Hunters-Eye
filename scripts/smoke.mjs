@@ -364,12 +364,29 @@ try {
     check('Overlays: Escape closes the readout', (await page.locator('.probe-popup').count()) === 0);
     // A second tap moves the one readout (re-adding an open MapLibre popup fires
     // its 'close' event), and leaves the keyboard on the globe.
-    const spot = async (lon, lat) => evalMap(([lon, lat]) => {
+    // The bare spot is searched for: planes and satellites move with the clock, so a
+    // fixed list of spots is sometimes covered at every one. Only what a click picks
+    // counts (the layers' interactive layers, as in globe.js), not the basemap.
+    const bareSpot = () => evalMap((first) => {
       const m = window.__huntersEye.map;
-      const p = m.project([lon, lat]);
-      const busy = [...new Set(m.queryRenderedFeatures([[p.x - 16, p.y - 16], [p.x + 16, p.y + 16]]).map((f) => f.layer.id))].filter((id) => !id.startsWith('he-overlay'));
-      return { x: p.x, y: p.y, busy };
-    }, [lon, lat]);
+      const hit = window.__huntersEye.layers.filter((l) => l.visible).flatMap((l) => l.interactive.map((i) => i.layer)).filter((id) => m.getLayer(id));
+      const box = m.getContainer().getBoundingClientRect();
+      const popup = document.querySelector('.probe-popup')?.getBoundingClientRect();
+      const tried = [];
+      const spots = [[-140, -40], [-100, -40], [-140, -20], [-100, -20]];
+      for (let lat = -50; lat <= -10; lat += 5) for (let lon = -160; lon <= -80; lon += 5) spots.push([lon, lat]);
+      for (const [lon, lat] of spots) {
+        if (Math.hypot(lon - first[0], lat - first[1]) < 15) continue; // away from the first readout
+        const p = m.project([lon, lat]);
+        if (p.x < 40 || p.y < 40 || p.x > box.width - 40 || p.y > box.height - 40) continue;
+        if (popup && box.left + p.x > popup.left - 20 && box.left + p.x < popup.right + 20 && box.top + p.y > popup.top - 20 && box.top + p.y < popup.bottom + 20) continue;
+        const busy = hit.length ? [...new Set(m.queryRenderedFeatures([[p.x - 16, p.y - 16], [p.x + 16, p.y + 16]], { layers: hit }).map((f) => f.layer.id))] : [];
+        const spot = { lon, lat, x: p.x, y: p.y, busy };
+        if (!busy.length) return spot;
+        tried.push(spot);
+      }
+      return tried[0];
+    }, [-120, -30]);
     const probeState = () => page.evaluate(() => ({
       popups: document.querySelectorAll('.probe-popup').length,
       dots: document.querySelectorAll('.probe-dot').length,
@@ -379,9 +396,7 @@ try {
     }));
     await page.mouse.click(mapBox.x + tap.x, mapBox.y + tap.y);
     await page.waitForTimeout(200);
-    const candidates = [];
-    for (const [lon, lat] of [[-140, -40], [-100, -40], [-140, -20], [-100, -20]]) candidates.push({ lon, lat, ...(await spot(lon, lat)) });
-    const second = candidates.find((c) => !c.busy.length) ?? candidates[0]; // a bare spot, away from the first popup
+    const second = await bareSpot();
     await page.mouse.click(mapBox.x + second.x, mapBox.y + second.y);
     await page.waitForTimeout(200);
     const moved = await probeState();

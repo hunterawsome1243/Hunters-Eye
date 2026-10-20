@@ -270,7 +270,7 @@ class Runner {
       error: st.error ? `The server can't reach ${this.provider}, and your browser's request failed too: ${st.error}` : null,
       // Only data the browser actually got is "loaded by your browser".
       note: st.updatedAt ? [st.note, `Loaded by your browser because ${why}.`].filter(Boolean).join(' ')
-        : `Your browser ${st.error ? 'tried' : 'is trying'} because ${why}.`,
+        : `Your browser ${st.error ? 'tried' : this.waiting ? 'will try' : 'is trying'} because ${why}.`,
       count: st.count,
       updatedAt: st.updatedAt,
       nextAt: st.nextAt,

@@ -49,8 +49,9 @@ export function estimateCost(model, usage) {
 // A small token bucket so a public page can't run up a bill: one `noun` every
 // `minGapMs`, at most `perHour` an hour across all visitors, and at most
 // `perAddress` (three quarters of that) from any one address, so a single visitor
-// can't use up the hour for everyone. Per-address stamps are kept for the last
-// MAX_ADDRESSES addresses only, and for an hour at most.
+// can't use up the hour for everyone. Per-address stamps are kept for an hour at
+// most, for at most MAX_ADDRESSES addresses. A refusal names the limit that is
+// in the way longest, so its "try again in" is true.
 const MAX_ADDRESSES = 1000;
 export function createThrottle({ minGapMs = 5000, perHour = 20, perAddress = Math.ceil(perHour * 0.75), noun = 'brief', now = Date.now } = {}) {
   let last = -Infinity;
@@ -62,16 +63,20 @@ export function createThrottle({ minGapMs = 5000, perHour = 20, perAddress = Mat
       const t = now();
       const thisHour = (s) => t - s < 3_600_000;
       stamps = stamps.filter(thisHour);
+      // Least recently used first, so the addresses with nothing left this hour are at the front.
+      for (const [key, times] of byAddress) {
+        if (thisHour(times[times.length - 1])) break;
+        byAddress.delete(key);
+      }
       const mine = (byAddress.get(address) ?? []).filter(thisHour);
-      if (t - last < minGapMs) return { ok: false, retryAfterMs: minGapMs - (t - last), reason: `A ${noun} was just written; try again in a few seconds.` };
-      if (stamps.length >= perHour) {
-        const wait = 3_600_000 - (t - stamps[0]);
-        return { ok: false, retryAfterMs: wait, reason: `The hourly limit of ${perHour} ${noun}s is used up. Try again in ${minutes(wait)}.` };
+      const hourWait = stamps.length >= perHour ? 3_600_000 - (t - stamps[0]) : 0;
+      const mineWait = mine.length >= perAddress ? 3_600_000 - (t - mine[0]) : 0;
+      const gapWait = Math.max(0, minGapMs - (t - last));
+      if (mineWait > hourWait) {
+        return { ok: false, retryAfterMs: Math.max(mineWait, gapWait), reason: `Your connection has had its ${perAddress} ${noun}s for this hour (everyone on the same network shares them). Try again in ${minutes(mineWait)}.` };
       }
-      if (mine.length >= perAddress) {
-        const wait = 3_600_000 - (t - mine[0]);
-        return { ok: false, retryAfterMs: wait, reason: `Each visitor gets ${perAddress} ${noun}s an hour. You can ask again in ${minutes(wait)}.` };
-      }
+      if (hourWait) return { ok: false, retryAfterMs: Math.max(hourWait, gapWait), reason: `The hourly limit of ${perHour} ${noun}s is used up. Try again in ${minutes(hourWait)}.` };
+      if (gapWait) return { ok: false, retryAfterMs: gapWait, reason: `A ${noun} was just written; try again in a few seconds.` };
       last = t;
       stamps.push(t);
       mine.push(t);
