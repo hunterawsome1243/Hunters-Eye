@@ -479,7 +479,8 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     renderMenu();
     placePopover();
     if (state.weather && !grid) loadGrid();
-    if (focus) popover.querySelector('input:checked, input')?.focus({ preventScroll: true });
+    // The chosen weather radio, the group's tab stop (a selector list would match None first).
+    if (focus) (popover.querySelector('input[type=radio]:checked') ?? popover.querySelector('input'))?.focus({ preventScroll: true });
   }
 
   if (typeof document !== 'undefined') {
@@ -502,6 +503,16 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     }, true);
     document.addEventListener('focusin', (e) => {
       if (open && !popover.contains(e.target) && e.target !== button) closeMenu();
+    });
+    // The menu sits at the end of the page, so Tab off its edge would leave for the
+    // browser's toolbar. Shift+Tab before the first choice goes back to the button, and
+    // Tab past the last carries on from the button to the next map control.
+    popover.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const stops = [...popover.querySelectorAll('input:not(:disabled)')].filter((i) => i.type !== 'radio' || i.checked);
+      if (document.activeElement !== (e.shiftKey ? stops[0] : stops.at(-1))) return;
+      if (e.shiftKey) e.preventDefault();
+      closeMenu(); // focus moves to the button first
     });
     window.addEventListener('resize', () => open && placePopover());
   }

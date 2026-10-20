@@ -50,6 +50,7 @@ function showFeedTab(name, { remember = false } = {}) {
     tab.setAttribute('aria-selected', String(key === name));
     tab.tabIndex = key === name ? 0 : -1;
   }
+  document.getElementById('feed').setAttribute('aria-labelledby', feedTabs[name].id);
   if (remember) {
     chosenTab = name;
     try { localStorage.setItem(FEED_TAB_KEY, name); } catch { /* private mode or full */ }
@@ -72,6 +73,7 @@ const watch = createWatch(document.getElementById('watch'), { here: () => here?.
 const detail = createDetailPanel(document.getElementById('detail'), {
   here: () => here?.position() ?? null,
   familyColor: (key) => byId.get(key.split(':')[0])?.color ?? null,
+  focusAfter: () => [document.querySelector('#feed button[aria-current]'), document.querySelector('#map .maplibregl-canvas')],
   onShow: ({ latlng, color, radius }) => {
     feed.refresh({ reveal: true });
     if (latlng) ripple(latlng, color, radius);

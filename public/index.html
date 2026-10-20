@@ -35,7 +35,7 @@
           </span>
           <span id="feed-count" class="muted"></span>
         </h2>
-        <ol id="feed" class="feed" aria-live="polite" role="tabpanel"></ol>
+        <ol id="feed" class="feed" role="tabpanel" aria-labelledby="feed-tab-near"></ol>
       </section>
       <section id="watch" class="panel-section watch-section"></section>
       <section class="panel-section filters-section no-anim">
@@ -56,12 +56,12 @@
     <div id="map" class="map no-anim" aria-label="Globe"></div>
     <div id="connecting" class="connecting show" aria-hidden="true"><span class="dot loading"></span>Connecting to feeds…</div>
 
-    <section id="detail" class="detail" hidden aria-live="polite">
+    <section id="detail" class="detail" hidden aria-labelledby="detail-title">
       <header class="detail-head">
         <span class="detail-icon" aria-hidden="true"></span>
         <div>
           <div class="detail-kicker"></div>
-          <h3 class="detail-title"></h3>
+          <h3 class="detail-title" id="detail-title"></h3>
         </div>
         <button class="icon-btn detail-close" aria-label="Close details">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
