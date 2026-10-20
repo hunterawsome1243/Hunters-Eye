@@ -18,6 +18,13 @@ const DEFAULT_BASEMAP = 'https://tiles.openfreemap.org/styles/dark';
 const DEFAULT_IMAGERY_TILES = 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg';
 const DEFAULT_IMAGERY_ATTRIBUTION = '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016) | <a href="https://maps.eox.at">EOX::Maps</a>';
 
+// body-parser's wording for the commonest refusals is the parser's, not the caller's
+// ("Expected property name or '}' in JSON at position 1"), so these say it plainly.
+const REQUEST_ERRORS = {
+  'entity.parse.failed': 'The request body is not valid JSON.',
+  'entity.too.large': 'The request body is too large.',
+};
+
 export function imageryConfig(env = process.env) {
   const tiles = env.IMAGERY_TILES ?? DEFAULT_IMAGERY_TILES;
   if (!tiles) return null; // IMAGERY_TILES= (empty) turns imagery off
@@ -119,6 +126,22 @@ export function createApp(sources, pollerOptions, {
   });
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
+  // Whatever went wrong on the way (a body that isn't JSON, is too big or in an
+  // encoding the parser doesn't know, or a route that threw) is answered as a line
+  // of JSON, never as Express's own HTML page, which prints the stack trace and this
+  // server's file paths unless NODE_ENV=production. The caller's mistakes keep their
+  // status (400, 413, 415); the server's own are logged and answered without detail.
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const code = err?.status ?? err?.statusCode;
+    const status = Number.isInteger(code) && code >= 400 && code < 600 ? code : 500;
+    if (status >= 500) console.error(`${req.method} ${req.path}:`, err);
+    const error = status >= 500 ? 'Something went wrong on the server.'
+      : REQUEST_ERRORS[err.type] ?? (err.expose && err.message ? err.message : 'Bad request.');
+    // A static file's error arrives with the file's own Content-Type already set.
+    res.status(status).type('json').set('X-Content-Type-Options', 'nosniff').json({ error });
+  });
 
   return { app, pollers };
 }

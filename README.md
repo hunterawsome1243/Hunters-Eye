@@ -205,7 +205,7 @@ The `--fake` stand-ins (`scripts/fake-upstream.mjs`) mirror each API's documente
 ```
 server/
   index.js            starts the server
-  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief, POST /api/describe, GET /api/whereami, GET /api/overlays/weather
+  app.js              Express routes: static files, /api/config, /api/status, /api/sources/:id, PUT /api/sources/:id/options, POST /api/brief, POST /api/describe, GET /api/whereami, GET /api/overlays/weather; errors (a broken or oversized body, a route that threw) answer as one line of JSON, never a stack trace
   brief.js            the Claude-written situation brief: snapshot sanitising, throttle, pricing, the shared route factory
   describe.js         the Claude-written description of one clicked object, and its follow-ups
   whereami.js         the visitor's place from their address (ipwho.is), cached
