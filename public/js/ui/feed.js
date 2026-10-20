@@ -7,6 +7,8 @@ const DISPLAY_LIMIT = 200;
 const SETTLE_MS = 2000; // entries added this long after the first load count as "new"
 const HERO_MAX_AGE_MS = 6 * 3_600_000; // older significant events are history, not the hero
 
+const placeError = (err) => (/^could not place/i.test(err) ? err : `Could not place you: ${err}`);
+
 // Small icons for system rows (feed failed / recovered, imagery switched) in place of a
 // colour dot. The icon takes the row's colour, so error and warn share the "!".
 const ALERT_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.25" fill="currentColor"/><path d="M6 3.2v3.3M6 8.4v.4" stroke="#0a0d12" stroke-width="1.6" stroke-linecap="round"/></svg>';
@@ -35,6 +37,10 @@ const ICONS = {
 export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent = () => false, onArrive = () => {}, onNew = () => {}, here = () => null, locate = async () => null, locateError = () => '' } = {}) {
   const entries = new Map();
   const nodes = new Map(); // id -> { li, button, swatch, color, time, dist, entry }
+  // The list is not a live region: switching tabs would read out every row, and the
+  // 30-second refresh every time and distance. A screen reader hears new rows from here.
+  const say = el('div', { class: 'sr-only', role: 'status' });
+  listEl.after(say);
   let renderQueued = false;
   let revealQueued = false;
   let loading = true; // skeleton rows while feeds are still answering (app.js setLoading)
@@ -44,6 +50,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
   const fresh = (t) => settledAt !== null && t > settledAt + SETTLE_MS;
   let mode = 'live';
   let locating = false; // the proximity feed is waiting for a place to measure from
+  let sayPlace = false; // a lookup just failed: read out why once its empty state is up
 
   // Entries a layer removes itself when the item leaves its data (`owned`: quakes,
   // alerts) are never capped, so an old M6 stays in the feed while it is on the globe.
@@ -84,7 +91,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     if (!here()) {
       const err = locateError();
       return el('li', { class: 'feed-empty feed-locate' },
-        el('span', {}, err ? (/^could not place/i.test(err) ? err : `Could not place you: ${err}`) : 'Nearest things first, measured from where you are.'),
+        el('span', {}, err ? placeError(err) : 'Nearest things first, measured from where you are.'),
         el('button', { type: 'button', class: 'brief-btn feed-locate-btn', onclick: () => api.locate({ browser: true }) }, err ? 'Try again' : 'Find me'),
         el('span', { class: 'muted' }, 'Find me asks your browser for its location first (it will ask you), and falls back to your network address. The Live feed needs no place.'));
     }
@@ -130,6 +137,9 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         listEl.replaceChildren(near ? nearEmpty() : el('li', { class: 'feed-empty' }, 'Waiting for events…'));
       }
       takeFocus();
+      const err = near && sayPlace && !loading && !locating && !here() ? locateError() : '';
+      if (err) say.textContent = placeError(err);
+      sayPlace = false;
       return;
     }
     // The first row still in view is the anchor; after the shuffle, scroll so it hasn't moved.
@@ -139,6 +149,8 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     // An entry is "new" once, when its row is first built after the first load (not
     // again when a layer toggle or a filter brings the row back).
     let arrived = null;
+    const news = [];
+    const revised = [];
     // One hero: the newest significant entry on show (a strong quake, an Extreme or
     // Severe alert, an emergency squawk), as long as it is less than six hours old.
     // In the proximity feed that is the nearest one, which is the right hero there too.
@@ -154,22 +166,29 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         nodes.set(e.id, n);
         if (!e.shown && !e.quiet && fresh(e.replacedAt ?? e.addedAt)) { // revised past a filter is new to the reader
           n.li.classList.add('new');
+          news.push(e);
           if (e.significant) arrived ??= e; // shown is newest first
         }
         e.shown = true;
       } else if (n.entry !== e) {
+        const was = n.entry;
         fill(n, e, now); // replaced (an earthquake's magnitude was revised)
         n.li.classList.remove('new');
-        if (fresh(e.replacedAt)) n.li.classList.add('updated');
+        if (fresh(e.replacedAt)) {
+          n.li.classList.add('updated');
+          if (was.title !== e.title || was.subtitle !== e.subtitle) revised.push(e); // a nudge in position reads the same
+        }
         e.shown = true;
       } else {
-        n.time.textContent = timeAgo(e.time, now);
+        const t = timeAgo(e.time, now);
+        if (n.time.textContent !== t) n.time.textContent = t;
         if (n.color !== e.color && !e.system) { // a quake's age colour moves on
           n.swatch.style.background = e.color;
           n.color = e.color;
         }
       }
-      n.dist.textContent = near ? `${num(Math.round(e.km))} km ${e.dir}` : '';
+      const d = near ? `${num(Math.round(e.km))} km ${e.dir}` : '';
+      if (n.dist.textContent !== d) n.dist.textContent = d;
       n.li.classList.toggle('hero', e === hero);
       n.li.classList.toggle('watched', !!e.watched);
       if (e === hero) n.li.style.setProperty('--c', e.color);
@@ -200,6 +219,12 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
       revealQueued = false;
       listEl.querySelector('[aria-current]')?.scrollIntoView({ block: 'nearest' });
     }
+    const spoken = (e) => [e.title, e.subtitle, near ? `${num(Math.round(e.km))} km ${e.dir}` : null].filter(Boolean).join(', ');
+    const few = (list) => `${list.slice(0, 3).map(spoken).join('; ')}${list.length > 3 ? '…' : ''}`;
+    const lines = [];
+    if (news.length) lines.push(news.length === 1 ? spoken(news[0]) : `${news.length} new: ${few(news)}`);
+    if (revised.length) lines.push(`Updated: ${few(revised)}`);
+    if (lines.length) say.textContent = lines.join('. ');
     if (arrived) onArrive(arrived);
   }
 
@@ -241,6 +266,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
     async locate(opts) {
       if (locating) return null;
       locating = true;
+      say.textContent = ''; // the same error again still reads as news
       refresh();
       try {
         return await locate(opts);
@@ -248,6 +274,7 @@ export function createFeed(listEl, countEl, { isVisible = () => true, isCurrent 
         return null;
       } finally {
         locating = false;
+        sayPlace = !here();
         refresh();
       }
     },

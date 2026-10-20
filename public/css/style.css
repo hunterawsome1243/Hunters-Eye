@@ -690,6 +690,10 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
   .maplibregl-ctrl-group button.he-ctrl-overlays { height: 36px; }
 }
 
+/* Read out by screen readers, never drawn. */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 1ms !important; transition-delay: 0s !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }

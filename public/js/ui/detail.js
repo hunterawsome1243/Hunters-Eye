@@ -19,8 +19,9 @@ const SQUARE = svg('<rect x="2" y="2" width="12" height="12" rx="2" fill="curren
 // A layer calls show() with a key; calling show() again with the same key refreshes
 // it in place (used for moving things like aircraft and satellites). onShow fires
 // only when the key changes, onClose when the panel goes away. familyColor(key) gives the
-// layer's own colour for the kicker.
-export function createDetailPanel(root, { onClose, onShow, here = () => null, familyColor = () => null, fetchImpl = fetch } = {}) {
+// layer's own colour for the kicker. Closing it with focus inside puts focus back where
+// it came from, else on the first of focusAfter() that takes it (the feed row, the globe).
+export function createDetailPanel(root, { onClose, onShow, here = () => null, familyColor = () => null, focusAfter = () => [], fetchImpl = fetch } = {}) {
   const head = root.querySelector('.detail-head');
   const closeBtn = root.querySelector('.detail-close');
   const icon = root.querySelector('.detail-icon');
@@ -33,6 +34,19 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
   const notesEl = el('p', { class: 'detail-notes', id: 'detail-notes' });
   const moreBtn = el('button', { type: 'button', class: 'detail-more', 'aria-controls': 'detail-notes', 'aria-expanded': 'false' }, 'Show more');
   const linkEl = el('p', { class: 'detail-link' });
+  // The card is not a live region (a satellite's card refreshes every second); a screen
+  // reader hears one line here when a new item opens.
+  const say = el('div', { class: 'sr-only', role: 'status' });
+  root.after(say);
+  // The same line twice (a second "Flood Warning", a reopen) may go unspoken, so it is
+  // cleared and written again a moment later.
+  function announce(line, key) {
+    if (say.textContent !== line) { say.textContent = line; return; }
+    say.textContent = '';
+    setTimeout(() => { if (currentKey === key) say.textContent = line; }, 100);
+  }
+  let shownLabels = null; // the rows on show, so a refresh can patch values in place
+  let opener = null; // what had focus when the card opened
   let notesOpen = false;
   let shownNotes = null;
   let shownLayer = null;
@@ -151,12 +165,24 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
     settle();
     root.hidden = true;
   }
+  // Focus left inside the closing card would sit on a hidden element, and the next Tab
+  // would start again at the top of the page.
+  function returnFocus() {
+    for (const node of [opener, ...focusAfter()]) {
+      if (!node?.isConnected || root.contains(node)) continue;
+      node.focus({ preventScroll: true });
+      if (document.activeElement === node) return;
+    }
+  }
   function hide() {
     if (currentKey === null) return;
     currentKey = null;
     currentItem = null;
     resetDescribe();
     cancelDrag(); // closed from elsewhere mid-drag (an alert expiring, a map tap)
+    if (root.contains(document.activeElement)) returnFocus();
+    opener = null;
+    say.textContent = ''; // a closed card leaves no line behind for browse mode
     root.classList.add('closing');
     closing = setTimeout(finishHide, 400);
     onClose?.();
@@ -166,8 +192,10 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
   });
 
   closeBtn.addEventListener('click', hide);
+  // Escape typed in a text field is the field's (it would otherwise throw away a
+  // half-typed follow-up and the description above it).
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') hide();
+    if (e.key === 'Escape' && !e.target.closest?.('input[type=text], input[type=number], textarea')) hide();
   });
 
   // On phones the panel is a bottom sheet: dragging its header down from the top
@@ -236,6 +264,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
   return {
     show({ key, color, kind, heading, fields = [], notes = '', link, latlng = null, radius }) {
       const changed = key !== currentKey;
+      if (changed && !root.contains(document.activeElement)) opener = document.activeElement;
       settle(); // reopened mid-close: just keep it
       currentKey = key;
       currentItem = { kind, heading, fields, notes, link };
@@ -247,14 +276,27 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
       }
       icon.style.color = color;
       kicker.style.color = familyColor(key) || '';
-      kicker.textContent = kind;
-      title.textContent = heading;
+      if (kicker.textContent !== kind) kicker.textContent = kind;
+      if (title.textContent !== heading) title.textContent = heading;
       // With a "you are here" marker set, the last row says how far away this is.
       const you = latlng ? here() : null;
       const shownFields = you
         ? [...fields, ['From you', `${num(distanceKm([you.lat, you.lon], latlng))} km`, `to the ${compassPoint(bearingDeg([you.lat, you.lon], latlng))} of ${you.place ? you.place.split(',')[0] : 'you'}`]]
         : fields;
-      rows.replaceChildren(...shownFields.filter(([, v]) => v != null && v !== '').flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
+      // The same rows again (a moving item's refresh) get only their changed values
+      // replaced, so selecting and copying a row survives the next tick.
+      const pairs = shownFields.filter(([, v]) => v != null && v !== '');
+      const labels = pairs.map(([k]) => k).join('\n');
+      if (changed || labels !== shownLabels) {
+        shownLabels = labels;
+        rows.replaceChildren(...pairs.flatMap(([k, v, sub]) => [el('dt', {}, k), value(v, sub)]));
+      } else {
+        pairs.forEach(([, v, sub], i) => {
+          const dd = rows.children[2 * i + 1];
+          const next = value(v, sub);
+          if (!dd.isEqualNode(next)) dd.replaceWith(next);
+        });
+      }
       if (changed) notesOpen = false;
       // Rebuilt only when something changed, so a refresh never drops keyboard focus.
       const linked = link && /^https?:\/\//.test(link.href);
@@ -273,6 +315,7 @@ export function createDetailPanel(root, { onClose, onShow, here = () => null, fa
       shownNotes = notes || null;
       if (changed) {
         root.scrollTop = 0;
+        announce(`${kind}: ${heading}`, key);
         onShow?.({ key, color, latlng, radius });
       }
     },
