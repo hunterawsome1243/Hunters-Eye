@@ -461,6 +461,7 @@ export function createOverlays({ map, globe, fetchImpl = fetch, clockOffset = ()
     if (!popover || !button) return;
     const r = button.getBoundingClientRect();
     popover.style.top = `${r.bottom + 6}px`;
+    popover.style.maxHeight = `${Math.max(120, window.innerHeight - r.bottom - 14)}px`; // scrolls on a short screen
     popover.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - popover.offsetWidth - 8))}px`;
   }
   function closeMenu() {
