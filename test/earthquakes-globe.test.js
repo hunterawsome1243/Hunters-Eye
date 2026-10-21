@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AGE, ageBucket, ageColor, haloFilter, magFilter, quakeFeature, radiusFor } from '../public/js/layers/earthquakes.js';
+import { AGE, SIGNIFICANT_MAG, ageBucket, ageColor, haloFilter, magFilter, quakeFeature, radiusFor, ringFilter } from '../public/js/layers/earthquakes.js';
 
 const HOUR = 3_600_000;
 const now = 1_700_000_000_000;
@@ -36,6 +36,12 @@ test('quakeFeature carries the promoted id, radius and age in [lon, lat] order',
 test('magnitude filter treats a missing magnitude as very small', () => {
   assert.deepEqual(magFilter(2.5), ['>=', ['coalesce', ['get', 'mag'], -99], 2.5]);
   assert.deepEqual(haloFilter(4), ['all', ['==', ['get', 'age'], 0], magFilter(4)]);
+});
+
+test('the second ring marks M5+ and follows the slider above that', () => {
+  assert.equal(SIGNIFICANT_MAG, 5);
+  assert.deepEqual(ringFilter(2.5), magFilter(5));
+  assert.deepEqual(ringFilter(6), magFilter(6));
 });
 
 test('radiusFor grows with the square of the magnitude and floors at 2.5', () => {

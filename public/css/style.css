@@ -344,7 +344,8 @@ body.sidebar-open .sidebar { transform: none; visibility: visible; transition-de
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
 .legend .swatch { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
 .legend[data-shape="square"] .swatch { border-radius: 2px; }
-.legend .swatch.ring { background: color-mix(in srgb, var(--c) 16%, transparent); box-shadow: inset 0 0 0 1.5px var(--c); }
+/* The aircraft groups: the same quiet ring as on the globe (1px at 60%, a faint wash) */
+.legend .swatch.ring { background: color-mix(in srgb, var(--c) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 60%, transparent); }
 
 /* Live feed */
 .feed { list-style: none; margin: 0 calc(-1 * var(--space-4)); padding: 0; overflow-y: auto; flex: 1; overscroll-behavior: contain; scroll-behavior: smooth;
