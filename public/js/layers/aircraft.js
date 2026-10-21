@@ -105,7 +105,7 @@ export default function create(ctx) {
     ctx.addLayer({
       id: 'he-aircraft-cluster-outline', type: 'circle', source: SRC, filter: ['has', 'point_count'],
       paint: {
-        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#0a0d12', 'circle-stroke-width': 3, 'circle-stroke-opacity': 0.75,
+        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#0a0d12', 'circle-stroke-width': 2.5, 'circle-stroke-opacity': 0.5,
         'circle-radius': ['step', ['get', 'point_count'], 8, 50, 11, 200, 15, 1000, 20],
         'circle-pitch-alignment': 'viewport',
       },
@@ -115,8 +115,10 @@ export default function create(ctx) {
       paint: {
         // A ring with a faint wash, not a disc: a filled bubble at partial alpha lands on
         // the "below 3 km" teal and reads as an altitude band. The legend has a row for it.
-        'circle-color': COLOR, 'circle-opacity': 0.16,
-        'circle-stroke-color': COLOR, 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.9,
+        // One step below a single plane (a 0.95 glyph): a 1px ring at 60%, so
+        // thousands of groups stay a quiet texture and a quake or a plane outranks them.
+        'circle-color': COLOR, 'circle-opacity': 0.08,
+        'circle-stroke-color': COLOR, 'circle-stroke-width': 1, 'circle-stroke-opacity': 0.6,
         'circle-radius': ['step', ['get', 'point_count'], 8, 50, 11, 200, 15, 1000, 20],
         'circle-pitch-alignment': 'viewport',
       },
@@ -141,10 +143,11 @@ export default function create(ctx) {
     }, 'planes');
     hasCountLayer = ctx.hasGlyphs();
     if (hasCountLayer) {
+      // The count is --text-2, not white, so on the quieter ring it does not outshine a plane.
       ctx.addLayer({
         id: 'he-aircraft-count', type: 'symbol', source: SRC, filter: ['all', ['has', 'point_count'], ['>=', ['get', 'point_count'], 50]],
         layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Regular'], 'text-size': 10, 'text-allow-overlap': true, 'text-ignore-placement': true },
-        paint: { 'text-color': '#e8eef5', 'text-halo-color': '#0a0d12', 'text-halo-width': 1 },
+        paint: { 'text-color': '#b7c2cf', 'text-halo-color': '#0a0d12', 'text-halo-width': 1 },
       }, 'labels');
     }
     ctx.addLayer({

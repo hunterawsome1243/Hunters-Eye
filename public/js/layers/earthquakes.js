@@ -17,6 +17,10 @@ export const ageBucket = (time, now = Date.now()) => AGE_COLORS.findIndex(([max]
 export const ageColor = (time, now = Date.now()) => AGE_COLORS[ageBucket(time, now)][1];
 export const ageFillOpacity = (time, now = Date.now()) => AGE_COLORS[ageBucket(time, now)][3];
 export const radiusFor = (mag) => 2.5 + Math.max(0, mag ?? 0) ** 2 * 0.5;
+// From this magnitude a quake gets a second, fainter ring RING_GAP px outside its dot,
+// so it outranks the aircraft groups at any zoom.
+export const SIGNIFICANT_MAG = 5;
+const RING_GAP = 4;
 
 // Paint expressions: the circle colour follows the `age` bucket of the feature
 // (same hexes as ageColor), the stroke turns white while the feature is selected.
@@ -25,6 +29,7 @@ export const AGE = ['match', ['get', 'age'], 0, AGE_COLORS[0][1], 1, AGE_COLORS[
 export const AGE_OPACITY = ['match', ['get', 'age'], 0, AGE_COLORS[0][3], 1, AGE_COLORS[1][3], 2, AGE_COLORS[2][3], AGE_COLORS[3][3]];
 export const magFilter = (minMag) => ['>=', ['coalesce', ['get', 'mag'], -99], minMag];
 export const haloFilter = (minMag) => ['all', ['==', ['get', 'age'], 0], magFilter(minMag)];
+export const ringFilter = (minMag) => magFilter(Math.max(minMag, SIGNIFICANT_MAG));
 
 // One GeoJSON feature per quake; the id is promoted so feature state (selection) and
 // click hits can address it.
@@ -39,6 +44,8 @@ export function quakeFeature(q, now = Date.now()) {
 
 const SRC = 'he-earthquakes';
 const HALO = 'he-earthquakes-halo';
+const RING_OUTLINE = 'he-earthquakes-ring-outline';
+const RING = 'he-earthquakes-ring';
 const OUTLINE = 'he-earthquakes-outline';
 const DOTS = 'he-earthquakes';
 
@@ -73,6 +80,8 @@ export default function create(ctx) {
   function applyFilter() {
     if (!canEdit()) return;
     if (map.getLayer(HALO)) map.setFilter(HALO, haloFilter(minMag));
+    if (map.getLayer(RING_OUTLINE)) map.setFilter(RING_OUTLINE, ringFilter(minMag));
+    if (map.getLayer(RING)) map.setFilter(RING, ringFilter(minMag));
     if (map.getLayer(OUTLINE)) map.setFilter(OUTLINE, magFilter(minMag));
     if (map.getLayer(DOTS)) map.setFilter(DOTS, magFilter(minMag));
   }
@@ -207,12 +216,48 @@ export default function create(ctx) {
       source: SRC,
       filter: haloFilter(minMag),
       paint: {
-        'circle-radius': ['+', ['get', 'r'], 6],
+        // Outside the significance ring when there is one, so the two never touch.
+        'circle-radius': ['+', ['get', 'r'], ['case', magFilter(SIGNIFICANT_MAG), 2 * RING_GAP + 1, 6]],
         'circle-color': 'rgba(0,0,0,0)',
         'circle-stroke-color': AGE_COLORS[0][1],
         'circle-stroke-width': 1,
         'circle-stroke-opacity': 0.3,
-        'circle-pitch-alignment': 'map',
+        // In screen space like the dot and the ring: a halo laid on the globe turns into an
+        // ellipse when tilted or near the edge, and would cut across the ring.
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport',
+      },
+    }, 'points');
+    // M5+: a second, fainter ring in the age colour, concentric with the dot, with the
+    // same dark rim as the dot so it survives bright imagery.
+    ctx.addLayer({
+      id: RING_OUTLINE,
+      type: 'circle',
+      source: SRC,
+      filter: ringFilter(minMag),
+      paint: {
+        'circle-radius': ['+', ['get', 'r'], RING_GAP],
+        'circle-color': 'rgba(0,0,0,0)',
+        'circle-stroke-color': '#0a0d12',
+        'circle-stroke-width': 2.5,
+        'circle-stroke-opacity': 0.6,
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport',
+      },
+    }, 'points');
+    ctx.addLayer({
+      id: RING,
+      type: 'circle',
+      source: SRC,
+      filter: ringFilter(minMag),
+      paint: {
+        'circle-radius': ['+', ['get', 'r'], RING_GAP],
+        'circle-color': 'rgba(0,0,0,0)',
+        'circle-stroke-color': AGE,
+        'circle-stroke-width': 1,
+        'circle-stroke-opacity': 0.65,
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport',
       },
     }, 'points');
     // A thin dark rim (the page --bg) just outside each dot's ring: lost on the dark
@@ -259,7 +304,7 @@ export default function create(ctx) {
     source: 'USGS',
     color: '#f5a524',
     visible: true,
-    layerIds: [HALO, OUTLINE, DOTS],
+    layerIds: [HALO, RING_OUTLINE, RING, OUTLINE, DOTS],
     interactive: [{ layer: DOTS, priority: 40 }],
     mount,
     update,
